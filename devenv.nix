@@ -3,7 +3,7 @@
 {
 
   # https://devenv.sh/packages/
-  packages = [  ];
+  packages = [ pkgs.openssl ];
 
   # https://devenv.sh/languages/
   # languages.nix.enable = true;
