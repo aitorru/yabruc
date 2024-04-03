@@ -4,9 +4,9 @@ use clap::{arg, Command};
 
 mod parser;
 
-fn main() {
+#[tokio::main(flavor = "multi_thread")]
+async fn main() {
     let matches = cli().get_matches();
-
     match matches.subcommand() {
         Some(("run", run_matches)) => {
             let path = run_matches.get_one::<String>("ROUTE").expect("required");
@@ -26,7 +26,7 @@ fn main() {
                 "Running on {}",
                 path
             );
-            let queries = parser::bru2struct::parse_pathbuf(collection);
+            let queries = parser::bru2struct::parse_pathbuf(collection).await;
             execute_collection(queries);
         }
         _ => unreachable!(),
@@ -54,7 +54,12 @@ fn scan_folder(path: &str) -> Vec<PathBuf> {
                 if path.is_dir() {
                     folders.push(path);
                 } else {
-                    files.push(path);
+                    if let Some(ext) = path.extension() {
+                        if ext != "bru" {
+                            continue;
+                        }
+                        files.push(path);
+                    }
                 }
             }
         } else {
