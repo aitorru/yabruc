@@ -1,11 +1,13 @@
-use std::{path::PathBuf, vec};
+use std::{path::PathBuf, time::Duration, vec};
 
 use clap::{arg, Command};
+use indicatif::{MultiProgress, ProgressBar};
 
 mod parser;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    let multi_bar = MultiProgress::new();
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("run", run_matches)) => {
@@ -18,26 +20,36 @@ async fn main() {
             }
             if std::path::Path::new(&path).is_dir() {
                 // Scan the folder for .bru files
+                let bar = multi_bar.add(ProgressBar::new_spinner());
+                bar.enable_steady_tick(Duration::from_millis(100));
+                bar.set_message("🔍 Scanning folder");
+                // Store the current time
+                let start = std::time::Instant::now();
                 collection = scan_folder(&path);
+                // Print the time it took to scan the folder
+                bar.set_message(format!("✅ Scanned folder in {:?}", start.elapsed()));
+                // Stop the spinner
+                bar.finish();
             } else {
+                let bar = multi_bar.add(ProgressBar::new_spinner());
+                bar.enable_steady_tick(Duration::from_millis(100));
+                let start = std::time::Instant::now();
                 collection = vec![std::path::PathBuf::from(&path)];
+                // Print the time it took to scan the folder
+                bar.println(format!("Scanned file in {:?}", start.elapsed()));
+                // Stop the spinner
+                bar.finish();
             }
-            println!(
-                "Running on {}",
-                path
-            );
-            let queries = parser::bru2struct::parse_pathbuf(collection).await;
+            let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
             execute_collection(queries);
         }
         _ => unreachable!(),
-        
     }
 }
 
 fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
     todo!()
 }
-
 
 fn scan_folder(path: &str) -> Vec<PathBuf> {
     let mut folders = vec![];
@@ -55,10 +67,9 @@ fn scan_folder(path: &str) -> Vec<PathBuf> {
                     folders.push(path);
                 } else {
                     if let Some(ext) = path.extension() {
-                        if ext != "bru" {
-                            continue;
+                        if ext == "bru" {
+                            files.push(path);
                         }
-                        files.push(path);
                     }
                 }
             }
