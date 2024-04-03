@@ -84,8 +84,8 @@ fn scan_folder(path: &str) -> Vec<PathBuf> {
 }
 
 fn cli() -> Command {
-    Command::new("bru-rs")
-        .about("Bruno's bru cli app written in Rust")
+    Command::new("yabruc")
+        .about("Bruno's bru cli app written in Rust. Yet another bru _compiler_")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(

@@ -1,5 +1,5 @@
 [package]
-name = "bru-rs"
+name = "yabruc"
 version = "0.1.0"
 edition = "2021"
 
