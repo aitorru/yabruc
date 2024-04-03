@@ -13,7 +13,7 @@ export default defineConfig({
 
     sidebar: [
       {
-        text: 'Examples',
+        text: 'Docs',
         items: [
           { text: 'Usage', link: '/usage' },
           { text: 'How it works', link: '/how-it-works' }
@@ -22,7 +22,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/vuejs/vitepress' }
+      { icon: 'github', link: 'https://github.com/aitorru/yabruc' }
     ]
   }
 })
