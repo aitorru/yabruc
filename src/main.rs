@@ -41,13 +41,13 @@ async fn main() {
                 bar.finish();
             }
             let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
-            execute_collection(queries);
+            execute_collection(queries).await;
         }
         _ => unreachable!(),
     }
 }
 
-fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
+async fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
     todo!()
 }
 
@@ -81,7 +81,7 @@ fn scan_folder(path: &str) -> Vec<PathBuf> {
 
 fn cli() -> Command {
     Command::new("yabruc")
-        .about("Bruno's bru cli app written in Rust. Yet another bru _compiler_")
+        .about("Bruno's bru cli app written in Rust. Yet another bru compiler")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(

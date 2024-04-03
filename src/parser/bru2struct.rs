@@ -26,9 +26,14 @@ struct Method {
     type_: reqwest::Method,
     url: String,
     // TODO: Expand this, the body might be more difficult.
-    body: Option<String>,
+    body: Option<BodyType>,
     // TODO: Expand this, the auth might need some calculations. Using more types will help.
     auth: Option<String>,
+}
+
+#[derive(Debug)]
+struct BodyType {
+    
 }
 
 pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) -> Vec<Dog> {
