@@ -2,19 +2,7 @@ use std::{path::PathBuf, vec};
 
 use clap::{arg, Command};
 
-struct Meta {
-    name: String,
-    type_: String,
-}
-
-struct Method {
-    type_: reqwest::Method,
-    url: String,
-    // TODO: Expand this, the body might be more difficult.
-    body: Option<String>,
-    // TODO: Expand this, the auth might need some calculations. Using more types will help.
-    auth: Option<String>,
-}
+mod parser;
 
 fn main() {
     let matches = cli().get_matches();
@@ -38,24 +26,16 @@ fn main() {
                 "Running on {}",
                 path
             );
-            execute_collection(collection);
+            let queries = parser::bru2struct::parse_pathbuf(collection);
+            execute_collection(queries);
         }
         _ => unreachable!(),
         
     }
 }
 
-fn execute_collection(collection: Vec<PathBuf>) {
-    for file in collection {
-        if file.extension().unwrap() != "bru" {
-            continue;
-        }
-        let content = std::fs::read_to_string(&file).unwrap();
-        let lines = content.lines();
-        for line in lines {
-            println!("{}", line);
-        }
-    }
+fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
+    todo!()
 }
 
 
