@@ -8,13 +8,10 @@ hero:
   actions:
     - theme: brand
       text: API docs
-      link: /docs
-features:
-  - title: Feature A
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature B
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature C
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
+      link: /usage
 ---
----
+::: warning
+**Mostly compatible with bru cli.**
+
+[It does not support scripting](). However, it supports the rest of the features.
+:::

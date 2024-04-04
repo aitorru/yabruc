@@ -9,6 +9,8 @@ use std::{
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
 
+use lazy_static::lazy_static;
+
 #[derive(Debug)]
 pub struct Dog {
     meta: Meta,
@@ -32,9 +34,7 @@ struct Method {
 }
 
 #[derive(Debug)]
-struct BodyType {
-    
-}
+struct BodyType {}
 
 pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) -> Vec<Dog> {
     let state = Arc::new(Mutex::new(multi_bar.clone()));
@@ -60,6 +60,22 @@ pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) 
     dogs
 }
 
+lazy_static! {
+    static ref METHODS: HashMap<&'static str, reqwest::Method> = {
+        let mut m = HashMap::new();
+        m.insert("get", reqwest::Method::GET);
+        m.insert("post", reqwest::Method::POST);
+        m.insert("put", reqwest::Method::PUT);
+        m.insert("delete", reqwest::Method::DELETE);
+        m.insert("patch", reqwest::Method::PATCH);
+        m.insert("options", reqwest::Method::OPTIONS);
+        m.insert("head", reqwest::Method::HEAD);
+        m.insert("connect", reqwest::Method::CONNECT);
+        m.insert("trace", reqwest::Method::TRACE);
+        m
+    };
+}
+
 enum ParseState {
     Unknown,
     Meta,
@@ -74,16 +90,6 @@ async fn parse_and_return_dog(
     let bar = state.lock().unwrap().add(ProgressBar::new_spinner());
     bar.set_message(format!("🔍 Parsing {} file.", file_name));
     let start = std::time::Instant::now();
-    let mut methods = HashMap::new();
-    methods.insert("get", reqwest::Method::GET);
-    methods.insert("post", reqwest::Method::POST);
-    methods.insert("put", reqwest::Method::PUT);
-    methods.insert("delete", reqwest::Method::DELETE);
-    methods.insert("patch", reqwest::Method::PATCH);
-    methods.insert("options", reqwest::Method::OPTIONS);
-    methods.insert("head", reqwest::Method::HEAD);
-    methods.insert("connect", reqwest::Method::CONNECT);
-    methods.insert("trace", reqwest::Method::TRACE);
 
     let mut state: ParseState = ParseState::Unknown;
     let mut final_dog: Dog = Dog {
@@ -109,7 +115,7 @@ async fn parse_and_return_dog(
                 }
                 // Method range. It can be the following values
                 // get | post | put | delete | patch | options | head | connect | trace
-                if let Some(method) = methods.get(line.split_whitespace().next().unwrap()) {
+                if let Some(method) = METHODS.get(line.split_whitespace().next().unwrap()) {
                     final_dog.method.type_ = method.clone();
                     state = ParseState::Method;
                 }
