@@ -4,7 +4,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: "yabruc",
   description: "A bru cli clone written in Rust!",
-  base: '/repo/',
+  base: '/yabruc/',
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     nav: [
