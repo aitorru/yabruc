@@ -29,7 +29,7 @@ struct Method {
     type_: reqwest::Method,
     url: String,
     // TODO: Expand this, the body might be more difficult.
-    body: Option<BodyType>,
+    body: Option<Body>,
     // TODO: Expand this, the auth might need some calculations. Using more types will help.
     auth: Option<String>,
 }
@@ -52,7 +52,18 @@ struct PostVars {
 
 
 #[derive(Debug)]
-struct BodyType {}
+struct Body {
+    type_: Option<BodyType>,
+    value: String,
+}
+
+#[derive(Debug)]
+enum BodyType {
+    Json,
+    Form,
+    File,
+    Raw,
+}
 
 pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) -> Vec<Dog> {
     let state = Arc::new(Mutex::new(multi_bar.clone()));
@@ -100,6 +111,7 @@ enum ParseState {
     Method,
     VariablesPre,
     VariablesPost,
+    BodyJson
 }
 
 async fn parse_and_return_dog(
@@ -154,6 +166,10 @@ async fn parse_and_return_dog(
 
                 if line.starts_with("vars:post-request") {
                     state = ParseState::VariablesPost;
+                }
+
+                if line.starts_with("body:json") {
+                    state = ParseState::BodyJson;
                 }
             }
             ParseState::Meta => {
@@ -218,6 +234,22 @@ async fn parse_and_return_dog(
                 // Add the index and the value to the hashmap
                 final_dog.variables.pre.vars.insert(index.to_string(), value.trim().to_string());
             },
+            ParseState::BodyJson => {
+                if line.starts_with("}") {
+                    state = ParseState::Unknown;
+                    continue;
+                }
+                if final_dog.method.body.is_none() {
+                    final_dog.method.body = Some(Body {
+                        type_: Some(BodyType::Json),
+                        value: line.trim().to_string(),
+                    });
+                } else {
+                    // TODO: Does serde_json need types?? Maybe storing it as a string is enough.
+                    // Will do that for now.
+                    final_dog.method.body.as_mut().unwrap().value += line.trim();
+                }
+            }
         }
     }
     bar.set_message(format!("✅ Parsed {} in {:?}", file_name, start.elapsed()));
