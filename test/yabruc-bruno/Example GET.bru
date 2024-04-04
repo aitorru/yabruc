@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: 
+  url: http://localhost:1234
   body: none
   auth: basic
 }
@@ -17,4 +17,12 @@ auth:basic {
 
 body:json {
   {}
+}
+
+vars:pre-request {
+  TestPre: before!
+}
+
+vars:post-response {
+  TestPro: after!
 }
