@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "name": "bru-rs",
+  "name": "yabruc-bruno",
   "type": "collection",
   "ignore": [
     "node_modules",

@@ -15,6 +15,7 @@ use lazy_static::lazy_static;
 pub struct Dog {
     meta: Meta,
     method: Method,
+    variables: Variables,
 }
 
 #[derive(Debug)]
@@ -32,6 +33,23 @@ struct Method {
     // TODO: Expand this, the auth might need some calculations. Using more types will help.
     auth: Option<String>,
 }
+
+#[derive(Debug)]
+struct Variables {
+    pre: PreVars,
+    post: PostVars,
+}
+
+#[derive(Debug)]
+struct PreVars {
+    vars: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+struct PostVars {
+    vars: HashMap<String, String>,
+}
+
 
 #[derive(Debug)]
 struct BodyType {}
@@ -80,6 +98,8 @@ enum ParseState {
     Unknown,
     Meta,
     Method,
+    VariablesPre,
+    VariablesPost,
 }
 
 async fn parse_and_return_dog(
@@ -103,6 +123,14 @@ async fn parse_and_return_dog(
             body: None,
             auth: None,
         },
+        variables: Variables {
+            pre: PreVars {
+                vars: HashMap::new(),
+            },
+            post: PostVars {
+                vars: HashMap::new(),
+            },
+        },
     };
     for line in lines.flatten() {
         match state {
@@ -118,6 +146,14 @@ async fn parse_and_return_dog(
                 if let Some(method) = METHODS.get(line.split_whitespace().next().unwrap()) {
                     final_dog.method.type_ = method.clone();
                     state = ParseState::Method;
+                }
+
+                if line.starts_with("vars:pre-request") {
+                    state = ParseState::VariablesPre;
+                }
+
+                if line.starts_with("vars:post-request") {
+                    state = ParseState::VariablesPost;
                 }
             }
             ParseState::Meta => {
@@ -152,6 +188,36 @@ async fn parse_and_return_dog(
                     final_dog.method.url = value.trim().to_string();
                 }
             }
+            ParseState::VariablesPre => {
+                if line.starts_with("}") {
+                    state = ParseState::Unknown;
+                    continue;
+                }
+                let (mut index, value) = line.split_at(line.find(":").unwrap());
+                let value = value.split_at(1).1;
+                // Remove stating and ending whitespaces in index
+                while index.starts_with(" ") || index.ends_with(" ") {
+                    index = index.trim();
+                }
+
+                // Add the index and the value to the hashmap
+                final_dog.variables.pre.vars.insert(index.to_string(), value.trim().to_string());    
+            }
+            ParseState::VariablesPost => {
+                if line.starts_with("}") {
+                    state = ParseState::Unknown;
+                    continue;
+                }
+                let (mut index, value) = line.split_at(line.find(":").unwrap());
+                let value = value.split_at(1).1;
+                // Remove stating and ending whitespaces in index
+                while index.starts_with(" ") || index.ends_with(" ") {
+                    index = index.trim();
+                }
+
+                // Add the index and the value to the hashmap
+                final_dog.variables.pre.vars.insert(index.to_string(), value.trim().to_string());
+            },
         }
     }
     bar.set_message(format!("✅ Parsed {} in {:?}", file_name, start.elapsed()));
