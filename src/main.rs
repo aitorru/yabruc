@@ -34,9 +34,10 @@ async fn main() {
                 let bar = multi_bar.add(ProgressBar::new_spinner());
                 bar.enable_steady_tick(Duration::from_millis(100));
                 let start = std::time::Instant::now();
+                bar.set_message("🔍 Scanning file");
                 collection = vec![std::path::PathBuf::from(&path)];
                 // Print the time it took to scan the folder
-                bar.println(format!("Scanned file in {:?}", start.elapsed()));
+                bar.set_message(format!("✅ Scanned file in {:?}", start.elapsed()));
                 // Stop the spinner
                 bar.finish();
             }
