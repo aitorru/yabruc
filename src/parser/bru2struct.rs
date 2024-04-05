@@ -284,7 +284,7 @@ async fn parse_and_return_dog(
                 // Add the index and the value to the hashmap
                 final_dog
                     .variables
-                    .pre
+                    .post
                     .vars
                     .insert(index.to_string(), value.trim().to_string());
             }

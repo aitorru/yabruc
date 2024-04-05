@@ -41,6 +41,10 @@ async fn main() {
                 // Stop the spinner
                 bar.finish();
             }
+            if collection.len() == 0 {
+                println!("No .bru files found.\nExiting 😉...");
+                std::process::exit(0);
+            }
             let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
             execute_collection(queries).await;
         }
