@@ -9,6 +9,9 @@ hero:
     - theme: brand
       text: API docs
       link: /usage
+  image:
+    src: /images/yabruc.webp
+    alt: Yabruc!
 ---
 ::: warning
 **Mostly compatible with bru cli.**
