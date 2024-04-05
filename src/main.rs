@@ -1,9 +1,11 @@
-use std::{path::PathBuf, time::Duration, vec};
+use std::{path::PathBuf, sync::{Arc, Mutex}, time::Duration, vec};
 
 use clap::{arg, Command};
 use indicatif::{MultiProgress, ProgressBar};
+use tokio::task::JoinSet;
 
 mod parser;
+mod hermes;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -46,13 +48,21 @@ async fn main() {
                 std::process::exit(0);
             }
             let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
-            execute_collection(queries).await;
+            execute_collection(queries, &multi_bar).await;
         }
         _ => unreachable!(),
     }
 }
 
-async fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
+async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &MultiProgress) {
+    let state = Arc::new(Mutex::new(multi_bar.clone()));
+    let mut set = JoinSet::new();
+    for query in queries {
+        let state_clone = state.clone();
+        set.spawn(async move {
+            hermes::requester::send_request(query, state_clone).await
+        });
+    }
     todo!()
 }
 

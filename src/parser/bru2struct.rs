@@ -13,51 +13,51 @@ use lazy_static::lazy_static;
 
 #[derive(Debug)]
 pub struct Dog {
-    meta: Meta,
-    method: Method,
-    variables: Variables,
+    pub meta: Meta,
+    pub method: Method,
+    pub variables: Variables,
 }
 
 #[derive(Debug)]
-struct Meta {
-    name: String,
-    type_: String,
+pub struct Meta {
+    pub name: String,
+    pub type_: String,
 }
 
 #[derive(Debug)]
-struct Method {
-    type_: reqwest::Method,
-    url: String,
+pub struct Method {
+    pub type_: reqwest::Method,
+    pub url: String,
     // TODO: Expand this, the body might be more difficult.
-    body: Option<Body>,
+    pub body: Option<Body>,
     // TODO: Expand this, the auth might need some calculations. Using more types will help.
-    auth: Option<String>,
+    pub auth: Option<String>,
 }
 
 #[derive(Debug)]
-struct Variables {
-    pre: PreVars,
-    post: PostVars,
+pub struct Variables {
+    pub pre: PreVars,
+    pub post: PostVars,
 }
 
 #[derive(Debug)]
-struct PreVars {
-    vars: HashMap<String, String>,
+pub struct PreVars {
+    pub vars: HashMap<String, String>,
 }
 
 #[derive(Debug)]
-struct PostVars {
-    vars: HashMap<String, String>,
+pub struct PostVars {
+    pub vars: HashMap<String, String>,
 }
 
 #[derive(Debug)]
-struct Body {
-    type_: Option<BodyType>,
-    value: String,
+pub struct Body {
+    pub type_: Option<BodyType>,
+    pub value: String,
 }
 
 #[derive(Debug)]
-enum BodyType {
+pub enum BodyType {
     Json,
     Xml,
     Text,
