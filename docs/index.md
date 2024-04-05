@@ -10,7 +10,7 @@ hero:
       text: API docs
       link: /usage
   image:
-    src: /images/yabruc.webp
+    src: /yabruc.webp
     alt: Yabruc!
 ---
 ::: warning

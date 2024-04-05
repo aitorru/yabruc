@@ -5,9 +5,9 @@ export default defineConfig({
   title: "yabruc",
   description: "A bru cli clone written in Rust!",
   base: '/yabruc/',
-  head: [['link', { rel: 'icon', href: '/yabruc/public/yabruc.ico' }]],
+  head: [['link', { rel: 'icon', href: '/yabruc/yabruc.ico' }]],
   themeConfig: {
-    logo: '/public/yabruc.webp',
+    logo: '/yabruc.webp',
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Home', link: '/' },
