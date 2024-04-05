@@ -50,7 +50,6 @@ struct PostVars {
     vars: HashMap<String, String>,
 }
 
-
 #[derive(Debug)]
 struct Body {
     type_: Option<BodyType>,
@@ -60,9 +59,11 @@ struct Body {
 #[derive(Debug)]
 enum BodyType {
     Json,
+    Xml,
+    Text,
+    Sparql,
     Form,
-    File,
-    Raw,
+    FormUrl,
 }
 
 pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) -> Vec<Dog> {
@@ -111,7 +112,7 @@ enum ParseState {
     Method,
     VariablesPre,
     VariablesPost,
-    BodyJson
+    BodyJson,
 }
 
 async fn parse_and_return_dog(
@@ -203,6 +204,51 @@ async fn parse_and_return_dog(
                 if index == "url" {
                     final_dog.method.url = value.trim().to_string();
                 }
+                if index == "body" {
+                    // Body can be none or a string
+                    match value.trim() {
+                        "none" => {
+                            final_dog.method.body = None;
+                        }
+                        "json" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::Json),
+                                value: "".to_string(),
+                            });
+                        }
+                        "xml" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::Xml),
+                                value: "".to_string(),
+                            });
+                        }
+                        "text" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::Text),
+                                value: "".to_string(),
+                            });
+                        }
+                        "sparql" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::Sparql),
+                                value: "".to_string(),
+                            });
+                        }
+                        "multipartForm" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::Form),
+                                value: "".to_string(),
+                            });
+                        }
+                        "formUrlEncoded" => {
+                            final_dog.method.body = Some(Body {
+                                type_: Some(BodyType::FormUrl),
+                                value: "".to_string(),
+                            });
+                        }
+                        _ => panic!("Unknown body type"),
+                    }
+                }
             }
             ParseState::VariablesPre => {
                 if line.starts_with("}") {
@@ -217,7 +263,11 @@ async fn parse_and_return_dog(
                 }
 
                 // Add the index and the value to the hashmap
-                final_dog.variables.pre.vars.insert(index.to_string(), value.trim().to_string());    
+                final_dog
+                    .variables
+                    .pre
+                    .vars
+                    .insert(index.to_string(), value.trim().to_string());
             }
             ParseState::VariablesPost => {
                 if line.starts_with("}") {
@@ -232,22 +282,30 @@ async fn parse_and_return_dog(
                 }
 
                 // Add the index and the value to the hashmap
-                final_dog.variables.pre.vars.insert(index.to_string(), value.trim().to_string());
-            },
+                final_dog
+                    .variables
+                    .pre
+                    .vars
+                    .insert(index.to_string(), value.trim().to_string());
+            }
             ParseState::BodyJson => {
                 if line.starts_with("}") {
                     state = ParseState::Unknown;
                     continue;
                 }
+                // If the body is none, continue, as the option has been disabled
                 if final_dog.method.body.is_none() {
-                    final_dog.method.body = Some(Body {
-                        type_: Some(BodyType::Json),
-                        value: line.trim().to_string(),
-                    });
+                    continue;
+                }
+                if let Some(bodytype) = &(final_dog.method.body.as_mut().unwrap().type_) {
+                    match bodytype {
+                        BodyType::Json => {
+                            final_dog.method.body.as_mut().unwrap().value += line.trim();
+                        }
+                        _ => continue,
+                    }
                 } else {
-                    // TODO: Does serde_json need types?? Maybe storing it as a string is enough.
-                    // Will do that for now.
-                    final_dog.method.body.as_mut().unwrap().value += line.trim();
+                    continue;
                 }
             }
         }

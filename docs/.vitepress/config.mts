@@ -17,7 +17,12 @@ export default defineConfig({
         text: 'Docs',
         items: [
           { text: 'Usage', link: '/usage' },
-          { text: 'Compatibility', link: '/compatibility' },
+          {
+            text: 'Compatibility', items: [
+              { text: 'General table', link: '/compatibility/' },
+              { text: 'HTTP', link: '/compatibility/HTTP' },
+            ]
+          },
           { text: 'How it works', link: '/how-it-works' }
         ]
       }
