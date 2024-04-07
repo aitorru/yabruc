@@ -3,7 +3,7 @@
 {
 
   # https://devenv.sh/packages/
-  packages = [ pkgs.openssl pkgs.fzf pkgs.ripgrep pkgs.bat pkgs.bun ];
+  packages = [ pkgs.openssl pkgs.fzf pkgs.ripgrep pkgs.bat pkgs.bun pkgs.just ];
 
   # https://devenv.sh/languages/
   # languages.nix.enable = true;
@@ -14,6 +14,17 @@
 
   # https://devenv.sh/processes/
   # processes.ping.exec = "ping example.com";
+  services.nginx = {
+    enable = true;
+    httpConfig = ''
+      server {
+        listen 1234;
+        location / {
+          return 200 "Hello, world!";
+        }
+      }
+    '';
+  };
 
   # See full reference at https://devenv.sh/reference/options/
 }

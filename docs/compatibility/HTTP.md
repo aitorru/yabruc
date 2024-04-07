@@ -13,7 +13,7 @@
 | PUT      |⚒️|
 | DELETE   |⚒️|
 | PATCH    |⚒️|
-| OPTIONS  |⚒️|
+| OPTIONS  |🔴|
 | HEAD     |⚒️|
-| CONNECT  |⚒️|
-| TRACE    |⚒️|
+| CONNECT  |🔴|
+| TRACE    |🔴|

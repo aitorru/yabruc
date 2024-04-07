@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Source file
-src_file="$(pwd)/test/bru-rs/Example GET.bru"
+src_file="$(pwd)/test/yabruc-bruno/Example GET.bru"
 
 # Destination directory
-dest_dir="$(pwd)/test/bru-rs/dist"
+dest_dir="$(pwd)/test/yabruc-bruno/dist"
 
 # Ensure the destination directory exists
 mkdir -p $dest_dir

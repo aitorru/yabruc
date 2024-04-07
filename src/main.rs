@@ -1,9 +1,11 @@
-use std::{path::PathBuf, time::Duration, vec};
+use std::{path::PathBuf, sync::{Arc, Mutex}, time::Duration, vec};
 
 use clap::{arg, Command};
 use indicatif::{MultiProgress, ProgressBar};
+use tokio::task::JoinSet;
 
 mod parser;
+mod hermes;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -41,15 +43,46 @@ async fn main() {
                 // Stop the spinner
                 bar.finish();
             }
+            if collection.len() == 0 {
+                println!("No .bru files found.\nExiting 😉...");
+                std::process::exit(0);
+            }
             let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
-            execute_collection(queries).await;
+            execute_collection(queries, &multi_bar).await;
         }
         _ => unreachable!(),
     }
 }
 
-async fn execute_collection(queries: Vec<parser::bru2struct::Dog>) {
-    todo!()
+async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &MultiProgress) {
+    let state = Arc::new(Mutex::new(multi_bar.clone()));
+    let mut set = JoinSet::new();
+    for query in queries {
+        let state_clone = state.clone();
+        set.spawn(async move {
+            hermes::requester::send_request(query, state_clone).await
+        });
+    }
+
+    let mut results_bools = vec![];
+    let mut results_dogs = vec![];
+    while let Some(result) = set.join_next().await {
+        let (status, dog) = result.expect("Request panicked");
+        results_bools.push(status);
+        results_dogs.push(dog);
+    }
+
+    // Check if all requests were successful
+    if results_bools.iter().all(|&x| x) {
+        println!("All requests were successful");
+    } else {
+        // Search for the failed dog
+        for (i, status) in results_bools.iter().enumerate() {
+            if !status {
+                println!("Request \"{}\"\n\tFailed for {}", results_dogs[i].meta.name, results_dogs[i].method.url);
+            }
+        }
+    }
 }
 
 fn scan_folder(path: &str) -> Vec<PathBuf> {
