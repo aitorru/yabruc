@@ -11,20 +11,20 @@ use tokio::task::JoinSet;
 
 use lazy_static::lazy_static;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Dog {
     pub meta: Meta,
     pub method: Method,
     pub variables: Variables,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Meta {
     pub name: String,
     pub type_: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Method {
     pub type_: reqwest::Method,
     pub url: String,
@@ -34,29 +34,29 @@ pub struct Method {
     pub auth: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Variables {
     pub pre: PreVars,
     pub post: PostVars,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreVars {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PostVars {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Body {
     pub type_: Option<BodyType>,
     pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BodyType {
     Json,
     Xml,

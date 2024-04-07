@@ -63,7 +63,26 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
             hermes::requester::send_request(query, state_clone).await
         });
     }
-    todo!()
+
+    let mut results_bools = vec![];
+    let mut results_dogs = vec![];
+    while let Some(result) = set.join_next().await {
+        let (status, dog) = result.expect("Request panicked");
+        results_bools.push(status);
+        results_dogs.push(dog);
+    }
+
+    // Check if all requests were successful
+    if results_bools.iter().all(|&x| x) {
+        println!("All requests were successful");
+    } else {
+        // Search for the failed dog
+        for (i, status) in results_bools.iter().enumerate() {
+            if !status {
+                println!("Request \"{}\"\n\tFailed for {}", results_dogs[i].meta.name, results_dogs[i].method.url);
+            }
+        }
+    }
 }
 
 fn scan_folder(path: &str) -> Vec<PathBuf> {
