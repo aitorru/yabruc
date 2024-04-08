@@ -67,5 +67,5 @@ To create the server, just type:
 devenv up
 ```
 
-For more documentation [read this](https://devenv.sh/processes/)
+For more documentation, [read this](https://devenv.sh/processes/)
 :::

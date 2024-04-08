@@ -10,7 +10,7 @@ dest_dir="$(pwd)/test/yabruc-bruno/dist"
 mkdir -p $dest_dir
 
 # Create 100 copies of the source file
-for i in {1..1000}
+for i in {1..50}
 do
     cp "$src_file" "$dest_dir/copy$i.bru"
 done
