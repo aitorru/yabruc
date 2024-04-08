@@ -32,7 +32,40 @@ If you want to contribute to the development of this crate, you will need to dow
 git clone https://github.com/aitorru/yabruc
 ```
 2. Download [devenv](https://devenv.sh/getting-started/)
-2. Set up the development environment:
+3. Set up the development environment:
 ```bash
 devenv shell
 ```
+::: tip
+For help with testing, devenv processes can help.
+
+It will spin up a nginx service with an example server.
+
+```
+───────┬─────────────────────────────────────────────────
+       │ File: devenv.nix
+───────┼─────────────────────────────────────────────────
+  15   │   # https://devenv.sh/processes/
+  16   │   # processes.ping.exec = "ping example.com";
+  17   │   services.nginx = {
+  18   │     enable = true;
+  19   │     httpConfig = ''
+  20   │       server {
+  21   │         listen 1234;
+  22   │         location / {
+  23   │           return 200 "Hello, world!";
+  24   │         }
+  25   │       }
+  26   │     '';
+  27   │   };
+───────┴─────────────────────────────────────────────────
+```
+
+To create the server, just type:
+
+```bash
+devenv up
+```
+
+For more documentation [read this](https://devenv.sh/processes/)
+:::

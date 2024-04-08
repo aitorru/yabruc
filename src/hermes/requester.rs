@@ -4,46 +4,38 @@ use indicatif::{MultiProgress, ProgressBar};
 
 use crate::parser::bru2struct::Dog;
 
-pub async fn send_request(request_parameters: Dog, state: Arc<Mutex<MultiProgress>>) -> (bool, Dog) {
-    
+pub async fn send_request(
+    request_parameters: Dog,
+    state: Arc<Mutex<MultiProgress>>,
+) -> (bool, Dog) {
     let start = std::time::Instant::now();
     let bar = state.lock().unwrap().add(ProgressBar::new_spinner());
     bar.enable_steady_tick(std::time::Duration::from_millis(100));
-    bar.set_message(format!("🛠️ {}: Building {} request", request_parameters.meta.name, request_parameters.method.url));
+    bar.set_message(format!(
+        "🛠️ {}: Building {} request",
+        request_parameters.meta.name, request_parameters.method.url
+    ));
 
     // Before we start building the request, lets check if the data is correct
     if request_parameters.method.url.is_empty() {
-        bar.finish_with_message(format!("❌ {}: Request for {} failed in {:?}", request_parameters.meta.name, request_parameters.method.url, start.elapsed()));
+        bar.finish_with_message(format!(
+            "❌ {}: Request for {} failed in {:?}",
+            request_parameters.meta.name,
+            request_parameters.method.url,
+            start.elapsed()
+        ));
         return (false, request_parameters);
     }
 
     let client = reqwest::Client::new();
 
     let builder = match request_parameters.method.type_ {
-        reqwest::Method::GET => {
-            client
-                .get(&request_parameters.method.url)
-        }
-        reqwest::Method::POST => {
-            client
-                .post(&request_parameters.method.url)
-        }
-        reqwest::Method::PUT => {
-            client
-                .put(&request_parameters.method.url)
-        }
-        reqwest::Method::DELETE => {
-            client
-                .delete(&request_parameters.method.url)
-        }
-        reqwest::Method::PATCH => {
-            client
-                .patch(&request_parameters.method.url)
-        }
-        reqwest::Method::HEAD => {
-            client
-                .head(&request_parameters.method.url)
-        }
+        reqwest::Method::GET => client.get(&request_parameters.method.url),
+        reqwest::Method::POST => client.post(&request_parameters.method.url),
+        reqwest::Method::PUT => client.put(&request_parameters.method.url),
+        reqwest::Method::DELETE => client.delete(&request_parameters.method.url),
+        reqwest::Method::PATCH => client.patch(&request_parameters.method.url),
+        reqwest::Method::HEAD => client.head(&request_parameters.method.url),
         reqwest::Method::OPTIONS => {
             todo!();
         }
@@ -59,14 +51,28 @@ pub async fn send_request(request_parameters: Dog, state: Arc<Mutex<MultiProgres
     };
 
     // TODO: Add body and headers
-    bar.set_message(format!("🌩️ {}: Sending request to {}", request_parameters.meta.name, request_parameters.method.url));
+    bar.set_message(format!(
+        "🌩️ {}: Sending request to {}",
+        request_parameters.meta.name, request_parameters.method.url
+    ));
     let response = builder.send().await;
 
-
     if response.is_ok() {
-        bar.finish_with_message(format!("✅ ¨{}: Request for {} succeeded in {:?} {}", request_parameters.meta.name, request_parameters.method.url, start.elapsed(), response.as_ref().unwrap().status()));
+        // TODO: Add more tests
+        bar.finish_with_message(format!(
+            "✅ {}: Request for {} succeeded in {:?} {}",
+            request_parameters.meta.name,
+            request_parameters.method.url,
+            start.elapsed(),
+            response.as_ref().unwrap().status()
+        ));
     } else {
-        bar.finish_with_message(format!("❌ {}: Request for {} failed in {:?}", request_parameters.meta.name, request_parameters.method.url, start.elapsed()));
+        bar.finish_with_message(format!(
+            "❌ {}: Request for {} failed in {:?}",
+            request_parameters.meta.name,
+            request_parameters.method.url,
+            start.elapsed()
+        ));
     }
     (response.is_ok(), request_parameters)
 }

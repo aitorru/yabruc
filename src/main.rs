@@ -1,11 +1,16 @@
-use std::{path::PathBuf, sync::{Arc, Mutex}, time::Duration, vec};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+    vec,
+};
 
 use clap::{arg, Command};
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
 
-mod parser;
 mod hermes;
+mod parser;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -59,9 +64,7 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
     let mut set = JoinSet::new();
     for query in queries {
         let state_clone = state.clone();
-        set.spawn(async move {
-            hermes::requester::send_request(query, state_clone).await
-        });
+        set.spawn(async move { hermes::requester::send_request(query, state_clone).await });
     }
 
     let mut results_bools = vec![];
@@ -74,12 +77,15 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
 
     // Check if all requests were successful
     if results_bools.iter().all(|&x| x) {
-        println!("All requests were successful");
+        println!("\nAll requests were successful");
     } else {
         // Search for the failed dog
         for (i, status) in results_bools.iter().enumerate() {
             if !status {
-                println!("Request \"{}\"\n\tFailed for {}", results_dogs[i].meta.name, results_dogs[i].method.url);
+                println!(
+                    "Request \"{}\"\n\tFailed for {}",
+                    results_dogs[i].meta.name, results_dogs[i].method.url
+                );
             }
         }
     }
