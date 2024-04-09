@@ -26,5 +26,10 @@
     '';
   };
 
+  enterTest = ''
+    cargo run run .
+    cargo test
+  '';
+
   # See full reference at https://devenv.sh/reference/options/
 }
