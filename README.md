@@ -1,6 +1,6 @@
 <p align="center">
     <a href="https://your-website-link.com">
-        <img src="./docs/public/yabruc.webp" alt="Your alt text" width="500">
+        <img src="./docs/public/yabruc.webp" alt="[Page logo](https://aitorru.github.io/yabruc/)" width="300">
     </a>
     <h1 align="center">Yabruc!</h1>
 </p>
