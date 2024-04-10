@@ -11,6 +11,7 @@ use tokio::task::JoinSet;
 
 mod hermes;
 mod parser;
+use colored::Colorize;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -53,6 +54,7 @@ async fn main() {
                 std::process::exit(0);
             }
             let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
+            println!("\n  🚀 Starting requests");
             execute_collection(queries, &multi_bar).await;
         }
         _ => unreachable!(),
@@ -77,17 +79,22 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
 
     // Check if all requests were successful
     if results_bools.iter().all(|&x| x) {
-        println!("\nAll requests were successful");
+        println!("\n  ✅ All requests were successful");
+        // exit 0
+        std::process::exit(0);
+        
     } else {
         // Search for the failed dog
         for (i, status) in results_bools.iter().enumerate() {
             if !status {
                 println!(
-                    "Request \"{}\"\n\tFailed for {}",
-                    results_dogs[i].meta.name, results_dogs[i].method.url
+                    "\n  Request {}\n  ➡️  Failed for {}",
+                    results_dogs[i].meta.name.red(),
+                    results_dogs[i].method.url.red()
                 );
             }
         }
+        std::process::exit(1);
     }
 }
 

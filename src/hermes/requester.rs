@@ -57,7 +57,12 @@ pub async fn send_request(
     ));
     let response = builder.send().await;
 
-    if response.is_ok() {
+    let process_response_result = response
+        .as_ref()
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+
+    if process_response_result {
         // TODO: Add more tests
         bar.finish_with_message(format!(
             "✅ {}: Request for {} succeeded in {:?} {}",
@@ -68,11 +73,12 @@ pub async fn send_request(
         ));
     } else {
         bar.finish_with_message(format!(
-            "❌ {}: Request for {} failed in {:?}",
+            "❌ {}: Request for {} failed in {:?} {}",
             request_parameters.meta.name,
             request_parameters.method.url,
-            start.elapsed()
+            start.elapsed(),
+            response.as_ref().unwrap().status()
         ));
     }
-    (response.is_ok(), request_parameters)
+    (process_response_result, request_parameters)
 }

@@ -22,6 +22,9 @@
         location / {
           return 200 "Hello, world!";
         }
+        location /error {
+          return 500 "Internal server error";
+        }
       }
     '';
   };
