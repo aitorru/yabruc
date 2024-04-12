@@ -79,10 +79,9 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
 
     // Check if all requests were successful
     if results_bools.iter().all(|&x| x) {
-        println!("\n  ✅ All requests were successful");
+        println!("\nAll requests were successful! 🎉🎉🎉");
         // exit 0
         std::process::exit(0);
-        
     } else {
         // Search for the failed dog
         for (i, status) in results_bools.iter().enumerate() {
