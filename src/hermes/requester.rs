@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use indicatif::{MultiProgress, ProgressBar};
 
-use crate::parser::bru2struct::Dog;
+use crate::parser::bru2struct::{BodyType, Dog};
 
 pub async fn send_request(
     request_parameters: Dog,
@@ -15,6 +15,8 @@ pub async fn send_request(
         "🛠️ {}: Building {} request",
         request_parameters.meta.name, request_parameters.method.url
     ));
+
+    // TODO: Replace variables
 
     // Before we start building the request, lets check if the data is correct
     if request_parameters.method.url.is_empty() {
@@ -29,7 +31,7 @@ pub async fn send_request(
 
     let client = reqwest::Client::new();
 
-    let builder = match request_parameters.method.type_ {
+    let mut builder = match request_parameters.method.type_ {
         reqwest::Method::GET => client.get(&request_parameters.method.url),
         reqwest::Method::POST => client.post(&request_parameters.method.url),
         reqwest::Method::PUT => client.put(&request_parameters.method.url),
@@ -51,6 +53,22 @@ pub async fn send_request(
     };
 
     // TODO: Add body and headers
+    if let Some(body_container) = request_parameters.method.body.as_ref() {
+        if let Some(type_of_body) = body_container.type_.as_ref() {
+            builder = match type_of_body {
+                BodyType::Json => {
+                    builder.body(serde_json::to_string(
+                        &request_parameters.method.body.as_ref().unwrap().value,
+                    ).unwrap())
+                }
+                BodyType::Text => {
+                    builder.body(body_container.value.to_string())
+                }
+                _ => todo!()
+            };
+        }
+    }
+
     bar.set_message(format!(
         "🌩️ {}: Sending request to {}",
         request_parameters.meta.name, request_parameters.method.url

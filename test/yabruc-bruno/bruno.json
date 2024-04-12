@@ -5,5 +5,17 @@
   "ignore": [
     "node_modules",
     ".git"
-  ]
+  ],
+  "proxy": {
+    "enabled": true,
+    "protocol": "http",
+    "hostname": "a",
+    "port": 1,
+    "auth": {
+      "enabled": false,
+      "username": "a",
+      "password": "a"
+    },
+    "bypassProxy": "a"
+  }
 }
