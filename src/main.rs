@@ -54,7 +54,7 @@ async fn main() {
                 println!("No .bru files found.\nExiting 😉...");
                 std::process::exit(0);
             }
-            let (queries, errors) = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
+            let (queries, errors) = parser::parse_pathbuf(collection, &multi_bar).await;
             // Progress bars are hidden when there is no terminal, so always print the errors
             for error in &errors {
                 eprintln!("  {}", error);
