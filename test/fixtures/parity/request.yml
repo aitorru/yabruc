@@ -1,0 +1,84 @@
+info:
+  name: Create user
+  type: http
+  seq: 3
+  tags:
+    - users
+    - smoke
+
+http:
+  method: POST
+  url: https://api.example.com/users/:team?verbose=true
+  params:
+    - name: verbose
+      value: "true"
+      type: query
+    - name: page
+      value: 2
+      type: query
+      disabled: true
+    - name: team
+      value: core
+      type: path
+  headers:
+    - name: content-type
+      value: application/json
+    - name: x-debug
+      value: "1"
+      disabled: true
+  body:
+    type: json
+    data: |-
+      {
+        "name": "John Doe",
+        "tags": ["a", "b"]
+      }
+  auth:
+    type: basic
+    username: "{{user}}"
+    password: secret
+
+runtime:
+  variables:
+    - name: user
+      value: john
+    - name: unused
+      value: value
+      disabled: true
+  scripts:
+    - type: before-request
+      code: bru.setVar("start", Date.now());
+    - type: after-response
+      code: console.log(res.status);
+    - type: tests
+      code: |-
+        test("created", function () {
+          expect(res.status).to.equal(201);
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "201"
+    - expression: res.body
+      operator: isJson
+    - expression: res.body.name
+      operator: eq
+      value: John Doe
+      disabled: true
+  actions:
+    - type: set-variable
+      phase: after-response
+      selector:
+        expression: res.body.id
+        method: jsonq
+      variable:
+        name: userId
+        scope: runtime
+
+settings:
+  encodeUrl: true
+  timeout: 3000
+  followRedirects: false
+  maxRedirects: 5
+
+docs: Creates a new user.
