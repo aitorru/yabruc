@@ -1,0 +1,81 @@
+meta {
+  name: Create user
+  type: http
+  seq: 3
+  tags: [
+    users
+    smoke
+  ]
+}
+
+post {
+  url: https://api.example.com/users/:team?verbose=true
+  body: json
+  auth: basic
+}
+
+params:query {
+  verbose: true
+  ~page: 2
+}
+
+params:path {
+  team: core
+}
+
+headers {
+  content-type: application/json
+  ~x-debug: 1
+}
+
+auth:basic {
+  username: {{user}}
+  password: secret
+}
+
+body:json {
+  {
+    "name": "John Doe",
+    "tags": ["a", "b"]
+  }
+}
+
+vars:pre-request {
+  user: john
+  ~unused: value
+}
+
+vars:post-response {
+  userId: res.body.id
+}
+
+assert {
+  res.status: eq 201
+  res.body: isJson
+  ~res.body.name: eq John Doe
+}
+
+script:pre-request {
+  bru.setVar("start", Date.now());
+}
+
+script:post-response {
+  console.log(res.status);
+}
+
+tests {
+  test("created", function () {
+    expect(res.status).to.equal(201);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 3000
+  followRedirects: false
+  maxRedirects: 5
+}
+
+docs {
+  Creates a new user.
+}
