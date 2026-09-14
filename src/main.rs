@@ -5,7 +5,7 @@ use std::{
     vec,
 };
 
-use clap::{arg, Command};
+use clap::{Command, arg};
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
 
@@ -33,7 +33,7 @@ async fn main() {
                 bar.set_message("🔍 Scanning folder");
                 // Store the current time
                 let start = std::time::Instant::now();
-                collection = scan_folder(&path);
+                collection = scan_folder(path);
                 // Print the time it took to scan the folder
                 bar.set_message(format!("✅ Scanned folder in {:?}", start.elapsed()));
                 // Stop the spinner
@@ -49,19 +49,27 @@ async fn main() {
                 // Stop the spinner
                 bar.finish();
             }
-            if collection.len() == 0 {
+            if collection.is_empty() {
                 println!("No .bru files found.\nExiting 😉...");
                 std::process::exit(0);
             }
-            let queries = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
+            let (queries, errors) = parser::bru2struct::parse_pathbuf(collection, &multi_bar).await;
+            // Progress bars are hidden when there is no terminal, so always print the errors
+            for error in &errors {
+                eprintln!("  {}", error);
+            }
             println!("\n  🚀 Starting requests");
-            execute_collection(queries, &multi_bar).await;
+            execute_collection(queries, errors.is_empty(), &multi_bar).await;
         }
         _ => unreachable!(),
     }
 }
 
-async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &MultiProgress) {
+async fn execute_collection(
+    queries: Vec<parser::bru2struct::Dog>,
+    parsed_all: bool,
+    multi_bar: &MultiProgress,
+) {
     let state = Arc::new(Mutex::new(multi_bar.clone()));
     let mut set = JoinSet::new();
     for query in queries {
@@ -78,11 +86,14 @@ async fn execute_collection(queries: Vec<parser::bru2struct::Dog>, multi_bar: &M
     }
 
     // Check if all requests were successful
-    if results_bools.iter().all(|&x| x) {
+    if parsed_all && results_bools.iter().all(|&x| x) {
         println!("\nAll requests were successful! 🎉🎉🎉");
         // exit 0
         std::process::exit(0);
     } else {
+        if !parsed_all {
+            println!("\n  Some files could not be parsed");
+        }
         // Search for the failed dog
         for (i, status) in results_bools.iter().enumerate() {
             if !status {
@@ -104,19 +115,15 @@ fn scan_folder(path: &str) -> Vec<PathBuf> {
     folders.push(std::path::PathBuf::from(path));
 
     loop {
-        if folders.len() > 0 {
+        if !folders.is_empty() {
             let folder = folders.pop().unwrap();
             let paths = std::fs::read_dir(&folder).unwrap();
             for path in paths {
                 let path = path.unwrap().path();
                 if path.is_dir() {
                     folders.push(path);
-                } else {
-                    if let Some(ext) = path.extension() {
-                        if ext == "bru" {
-                            files.push(path);
-                        }
-                    }
+                } else if path.extension().is_some_and(|ext| ext == "bru") {
+                    files.push(path);
                 }
             }
         } else {
