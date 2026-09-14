@@ -149,3 +149,48 @@ pub struct Settings {
     pub follow_redirects: Option<bool>,
     pub max_redirects: Option<u32>,
 }
+
+/// Request defaults defined by a collection (`collection.bru`, `opencollection.yml`) or a folder
+/// (`folder.bru`, `folder.yml`).
+#[derive(Debug, PartialEq, Clone)]
+pub struct Defaults {
+    pub name: Option<String>,
+    /// Position of the folder inside its parent.
+    pub seq: Option<f64>,
+    pub headers: Vec<KeyValue>,
+    pub auth: Auth,
+    pub vars: Vars,
+    pub scripts: Scripts,
+    pub docs: Option<String>,
+}
+
+impl Default for Defaults {
+    fn default() -> Self {
+        Defaults {
+            name: None,
+            seq: None,
+            headers: vec![],
+            auth: Auth::None,
+            vars: Vars::default(),
+            scripts: Scripts::default(),
+            docs: None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Environment {
+    pub name: String,
+    pub variables: Vec<EnvironmentVariable>,
+    /// Names of the environments this one inherits variables from.
+    pub extends: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct EnvironmentVariable {
+    pub name: String,
+    pub value: String,
+    pub enabled: bool,
+    /// Secret values are not stored in the file, they must be given when running.
+    pub secret: bool,
+}
