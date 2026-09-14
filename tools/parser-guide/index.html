@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El parser de yabruc, paso a paso</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1f23; --muted: #62666d; --line: #e3e3de;
+    --accent: #c2410c; --accent-soft: #fff1e8;
+    --dict: #2563eb; --dict-bg: #e8f0fe; --text: #15803d; --text-bg: #e7f6ec;
+    --array: #9333ea; --array-bg: #f3e8ff; --inline: #b45309; --inline-bg: #fdf3e1;
+    --err: #dc2626; --err-bg: #fde8e8; --cursor-bg: #fff3b0;
+    --code-bg: #f2f2ee; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141518; --panel: #1c1d21; --ink: #e8e8e6; --muted: #9a9ea6; --line: #2d2f35;
+      --accent: #fb923c; --accent-soft: #2c1d12;
+      --dict: #7aa7ff; --dict-bg: #17233b; --text: #5fd08a; --text-bg: #14281c;
+      --array: #c79bff; --array-bg: #251a38; --inline: #f0b760; --inline-bg: #2e2413;
+      --err: #ff7373; --err-bg: #3a1717; --cursor-bg: #4a4214;
+      --code-bg: #232429; --shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  code, pre, textarea { font-family: var(--mono); font-size: 13px; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+  header.hero { padding: 48px 24px 28px; max-width: 1180px; margin: 0 auto; }
+  header.hero h1 { font-size: 34px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -.02em; }
+  header.hero p { color: var(--muted); margin: 0; max-width: 760px; }
+  nav.toc { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  nav.toc div { max-width: 1180px; margin: 0 auto; padding: 10px 24px; display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }
+  nav.toc a { color: var(--muted); text-decoration: none; }
+  nav.toc a:hover { color: var(--ink); }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 24px 80px; }
+  section { margin-top: 44px; }
+  section > h2 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.01em; }
+  section > p.lead { color: var(--muted); margin: 0 0 18px; max-width: 820px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+
+  /* Pipeline */
+  .pipeline { display: grid; grid-template-columns: 1fr 34px 1fr 34px 1.1fr 34px 1.1fr 34px 1fr; align-items: center; gap: 0; padding: 20px; }
+  .stage { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); cursor: pointer; transition: border-color .15s; min-height: 92px; }
+  .stage:hover, .stage.active { border-color: var(--accent); }
+  .stage h4 { margin: 0 0 2px; font-size: 14px; }
+  .stage small { color: var(--muted); display: block; font-size: 12px; line-height: 1.35; }
+  .stage .file { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .arrow { text-align: center; color: var(--muted); font-size: 18px; }
+  .lanes { display: grid; gap: 10px; }
+  .stage-detail { border-top: 1px solid var(--line); padding: 14px 20px 18px; }
+  .stage-detail h3 { margin: 0 0 6px; font-size: 16px; }
+  @media (max-width: 900px) { .pipeline { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); } }
+
+  /* Playground */
+  .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .toolbar label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  select, button { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  .play { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 560px; }
+  @media (max-width: 900px) { .play { grid-template-columns: 1fr; } }
+  .left { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+  .editor { position: relative; flex: 1; min-height: 480px; overflow: hidden; background: var(--panel); }
+  .editor .gutter, .editor .hl, .editor textarea { position: absolute; top: 0; bottom: 0; margin: 0; padding: 12px 0; line-height: 20px; font-family: var(--mono); font-size: 13px; }
+  .editor .gutter { left: 0; width: 44px; text-align: right; color: var(--muted); overflow: hidden; user-select: none; border-right: 1px solid var(--line); background: var(--bg); }
+  .editor .gutter div { padding-right: 8px; height: 20px; }
+  .editor .gutter div.err { color: var(--err); font-weight: 700; }
+  .editor .hl { left: 44px; right: 0; overflow: hidden; pointer-events: none; }
+  .editor .hl div { height: 20px; white-space: pre; color: transparent; padding-left: 10px; border-left: 3px solid transparent; }
+  .editor textarea { left: 44px; right: 0; width: calc(100% - 44px); border: 0; outline: none; resize: none; background: transparent; color: var(--ink); padding-left: 13px; white-space: pre; overflow: auto; tab-size: 2; caret-color: var(--accent); }
+  .k-Dictionary { background: var(--dict-bg); border-left-color: var(--dict) !important; }
+  .k-Text { background: var(--text-bg); border-left-color: var(--text) !important; }
+  .k-Array { background: var(--array-bg); border-left-color: var(--array) !important; }
+  .k-Inline { background: var(--inline-bg); border-left-color: var(--inline) !important; }
+  .editor .hl div.header { font-weight: 700; }
+  .editor .hl div.cursor { background: var(--cursor-bg) !important; }
+  .editor .hl div.errline { background: var(--err-bg) !important; border-left-color: var(--err) !important; }
+  .status { padding: 9px 14px; border-top: 1px solid var(--line); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .status.ok { color: var(--text); }
+  .status.bad { color: var(--err); background: var(--err-bg); }
+  .legend { display: flex; gap: 10px; font-size: 12px; color: var(--muted); padding: 8px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .legend .l-d::before { background: var(--dict); } .legend .l-t::before { background: var(--text); }
+  .legend .l-a::before { background: var(--array); } .legend .l-i::before { background: var(--inline); }
+  .legend .l-c::before { background: var(--cursor-bg); border: 1px solid var(--line); }
+
+  .right { display: flex; flex-direction: column; min-width: 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { border: 0; border-radius: 0; background: none; padding: 11px 16px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab { display: none; flex: 1; overflow: auto; max-height: 620px; }
+  .tab.on { display: block; }
+  .stepper { display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; flex-wrap: wrap; }
+  .stepper input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .stepper .count { font-size: 12px; color: var(--muted); min-width: 70px; text-align: right; }
+  .now { padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--accent-soft); font-size: 14px; }
+  .now .fn { margin-right: 6px; }
+  .events { list-style: none; margin: 0; padding: 6px 0; }
+  .events li { padding: 5px 14px; font-size: 13px; cursor: pointer; display: grid; grid-template-columns: 38px 118px 1fr; gap: 8px; align-items: baseline; }
+  .events li:hover { background: var(--bg); }
+  .events li.on { background: var(--cursor-bg); }
+  .events li.discarded { opacity: .45; text-decoration: line-through; text-decoration-color: var(--muted); }
+  .events li .ln { color: var(--muted); font-family: var(--mono); font-size: 12px; text-align: right; }
+  .fn { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--code-bg); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fn.block { color: var(--accent); } .fn.dictionary, .fn.pair { color: var(--dict); } .fn.text { color: var(--text); }
+  .fn.array, .fn.list { color: var(--array); } .fn.annotation, .fn.multiline { color: var(--inline); } .fn.error { color: var(--err); background: var(--err-bg); }
+
+  .doc { padding: 12px 14px; display: grid; gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .card .head { display: flex; gap: 8px; align-items: center; padding: 7px 10px; background: var(--bg); cursor: pointer; }
+  .card .head b { font-family: var(--mono); font-size: 13px; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+  .badge.Dictionary { background: var(--dict-bg); color: var(--dict); } .badge.Text { background: var(--text-bg); color: var(--text); }
+  .badge.Array { background: var(--array-bg); color: var(--array); } .badge.Inline { background: var(--inline-bg); color: var(--inline); }
+  .card .head .ln { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .card table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .card td, .card th { padding: 5px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .card th { font-weight: 500; color: var(--muted); font-size: 12px; }
+  .card td.k { font-family: var(--mono); white-space: nowrap; }
+  .card td.v { font-family: var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .card .off td.k { text-decoration: line-through; color: var(--muted); }
+  .card pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); white-space: pre-wrap; }
+  .ann { font-size: 11px; color: var(--inline); display: block; white-space: pre-wrap; }
+  .muted { color: var(--muted); }
+  .json { padding: 12px 14px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .json .s { color: var(--text); } .json .n { color: var(--array); } .json .b { color: var(--inline); } .json .key { color: var(--dict); } .json .null { color: var(--muted); }
+  .errbox { margin: 14px; padding: 12px 14px; border-radius: 9px; background: var(--err-bg); color: var(--err); }
+  .errbox p { color: var(--ink); margin: 6px 0 0; }
+
+  /* Rules */
+  .rules { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .rule { padding: 16px 18px; }
+  .rule h3 { margin: 0 0 8px; font-size: 16px; }
+  .rule p { margin: 6px 0; }
+  .rule pre { background: var(--code-bg); padding: 8px 10px; border-radius: 7px; margin: 8px 0; overflow: auto; }
+  .rule button { margin-top: 6px; }
+  .rule ul { padding-left: 18px; margin: 6px 0; }
+  table.plain { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.plain th, table.plain td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.plain th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  table.plain tr:last-child td { border-bottom: 0; }
+  .decision { counter-reset: d; list-style: none; padding: 0; margin: 8px 0; }
+  .decision li { counter-increment: d; padding: 5px 0 5px 30px; position: relative; }
+  .decision li::before { content: counter(d); position: absolute; left: 0; top: 5px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+  .cursor-demo { font-family: var(--mono); font-size: 13px; background: var(--code-bg); border-radius: 7px; padding: 10px; margin: 8px 0; }
+  .cursor-demo .c { background: var(--accent); color: #fff; border-radius: 2px; }
+  .cursor-demo .r { background: var(--dict-bg); color: var(--dict); }
+
+  .sort { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .sort > div { padding: 14px 16px; }
+  .sort > div:first-child { border-right: 1px solid var(--line); }
+  .sort textarea { width: 100%; height: 150px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; padding: 8px; }
+  .sort ol { margin: 6px 0; padding-left: 22px; font-family: var(--mono); font-size: 13px; }
+  .sort .steps { font-size: 13px; color: var(--muted); }
+  @media (max-width: 900px) { .sort { grid-template-columns: 1fr; } .sort > div:first-child { border-right: 0; border-bottom: 1px solid var(--line); } }
+  footer { color: var(--muted); font-size: 13px; margin-top: 50px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>El parser de yabruc, paso a paso</h1>
+  <p>Cómo un fichero <code>.bru</code> o <code>.yml</code> se convierte en una petición lista para enviar. Todo lo que ves en el playground lo ejecuta un port a JavaScript de <code>src/parser/bru.rs</code> y <code>src/parser/bru2struct.rs</code>, que se valida contra el código Rust real.</p>
+</header>
+
+<nav class="toc"><div>
+  <a href="#mapa">1. El mapa</a>
+  <a href="#playground">2. Playground</a>
+  <a href="#reglas">3. Las reglas del .bru</a>
+  <a href="#mapeo">4. De Document a Request</a>
+  <a href="#coleccion">5. Colección y orden</a>
+  <a href="#fiabilidad">6. ¿Me puedo fiar?</a>
+</div></nav>
+
+<main>
+
+<section id="mapa">
+  <h2>1. El mapa</h2>
+  <p class="lead">El trabajo está partido en capas que no se conocen entre sí. La sintaxis no sabe qué es una petición y el loader no sabe leer un bloque. Pulsa en cada caja para ver qué hace.</p>
+  <div class="panel">
+    <div class="pipeline">
+      <div class="stage" data-stage="main"><h4>yabruc run RUTA</h4><span class="file">src/main.rs</span><small>Comprueba la ruta y pide la colección.</small></div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="loader"><h4>collection::load</h4><span class="file">src/collection.rs</span><small>Encuentra la raíz, recorre carpetas, ignora y ordena.</small></div>
+      <div class="arrow">→</div>
+      <div class="lanes">
+        <div class="stage" data-stage="bru"><h4>bru::parse</h4><span class="file">src/parser/bru.rs</span><small>Solo sintaxis: texto → <code>Document</code> de bloques.</small></div>
+        <div class="stage" data-stage="yaml"><h4>serde_yaml_ng</h4><span class="file">crate externo</span><small>YAML → árbol <code>Value</code> genérico.</small></div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="lanes">
+        <div class="stage" data-stage="bru2struct"><h4>bru2struct</h4><span class="file">src/parser/bru2struct.rs</span><small>Da significado a los bloques.</small></div>
+        <div class="stage" data-stage="yml2struct"><h4>yml2struct</h4><span class="file">src/parser/yml2struct.rs</span><small>Da significado a las claves YAML.</small></div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage" data-stage="model"><h4>Request</h4><span class="file">src/model.rs</span><small>Mismo tipo venga de donde venga. Lo usa <code>hermes</code>.</small></div>
+    </div>
+    <div class="stage-detail" id="stage-detail"></div>
+  </div>
+</section>
+
+<section id="playground">
+  <h2>2. Playground</h2>
+  <p class="lead">Escribe o elige un ejemplo. El fondo de cada línea indica en qué tipo de bloque ha caído. En <b>Traza</b> puedes avanzar decisión a decisión: la línea amarilla es donde está el cursor del parser en ese paso.</p>
+  <div class="panel">
+    <div class="toolbar">
+      <label>Ejemplo <select id="preset"></select></label>
+      <label>Interpretar como <select id="mode">
+        <option value="request">petición (document_to_request)</option>
+        <option value="defaults">collection.bru / folder.bru (document_to_defaults)</option>
+        <option value="environment">entorno (document_to_environment)</option>
+      </select></label>
+    </div>
+    <div class="play">
+      <div class="left">
+        <div class="editor">
+          <div class="gutter" id="gutter"></div>
+          <div class="hl" id="hl"></div>
+          <textarea id="source" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea>
+        </div>
+        <div class="legend"><span class="l-d">diccionario</span><span class="l-t">texto</span><span class="l-a">array</span><span class="l-i">inline</span><span class="l-c">cursor del paso actual</span></div>
+        <div class="status" id="status"></div>
+      </div>
+      <div class="right">
+        <div class="tabs">
+          <button data-tab="trace" class="on">Traza</button>
+          <button data-tab="document">Document</button>
+          <button data-tab="result">Resultado</button>
+        </div>
+        <div class="tab on" id="tab-trace">
+          <div class="stepper">
+            <button id="first" title="Primer paso">⏮</button>
+            <button id="prev" title="Paso anterior">◀</button>
+            <button id="next" title="Paso siguiente">▶</button>
+            <button id="last" title="Último paso">⏭</button>
+            <input type="range" id="slider" min="0" value="0">
+            <span class="count" id="count"></span>
+          </div>
+          <div class="now" id="now"></div>
+          <ul class="events" id="events"></ul>
+        </div>
+        <div class="tab" id="tab-document"><div class="doc" id="doc"></div></div>
+        <div class="tab" id="tab-result"><div id="result"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="reglas">
+  <h2>3. Las reglas del <code>.bru</code></h2>
+  <p class="lead">El parser no usa expresiones regulares ni una gramática generada. Es un cursor (<code>pos</code>) que avanza por el texto y mira lo que tiene delante. Estas son todas las decisiones que toma; cada tarjeta tiene un botón para probarla en el playground.</p>
+  <div class="rules">
+
+    <div class="panel rule">
+      <h3>El cursor</h3>
+      <p>Toda la clase <code>Parser</code> gira alrededor de un índice <code>pos</code> sobre el texto (con los <code>\r\n</code> ya convertidos a <code>\n</code>). Estas funciones lo leen o lo mueven:</p>
+      <div class="cursor-demo">  url<span class="c">:</span><span class="r"> http://localhost</span><br><span class="muted">pos está en ":" · rest_of_line() es lo azul</span></div>
+      <table class="plain">
+        <tr><td><code>rest()</code></td><td>todo desde <code>pos</code></td></tr>
+        <tr><td><code>rest_of_line()</code></td><td>desde <code>pos</code> hasta el salto de línea</td></tr>
+        <tr><td><code>take_line()</code></td><td>devuelve lo anterior y salta a la línea siguiente</td></tr>
+        <tr><td><code>eat("x")</code></td><td>si lo siguiente es <code>x</code>, lo consume y devuelve <code>true</code></td></tr>
+        <tr><td><code>skip_spaces()</code></td><td>consume espacios y tabuladores</td></tr>
+        <tr><td><code>line()</code></td><td>cuenta los <code>\n</code> antes de <code>pos</code> (para errores)</td></tr>
+      </table>
+    </div>
+
+    <div class="panel rule">
+      <h3>¿Qué es cada cabecera?</h3>
+      <p>Fuera de un bloque, <code>block()</code> lee la línea entera, le hace <code>trim</code> y la clasifica en este orden:</p>
+      <ol class="decision">
+        <li>Termina en <code>{}</code> → bloque vacío</li>
+        <li>Termina en <code>{</code> → bloque con llaves (texto o diccionario, ver siguiente tarjeta)</li>
+        <li>Termina en <code>[</code> → array en varias líneas</li>
+        <li>Tiene <code>[</code> y termina en <code>]</code> → array en una línea</li>
+        <li>Tiene <code>:</code> → valor inline (<code>color: #fff</code>)</li>
+        <li>Nada de lo anterior → <code>expected a block</code></li>
+      </ol>
+      <p>El nombre no puede tener espacios: <code>my block {</code> es <code>invalid block name</code>.</p>
+      <button data-try="headers">Probar</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>¿Texto o diccionario?</h3>
+      <p>Lo decide <b>el nombre</b>, no el contenido (<code>braces_block</code>):</p>
+      <ul>
+        <li><b>Texto</b>: <code>body</code>, <code>body:json|text|xml|sparql|graphql|graphql:vars</code>, <code>tests</code>, <code>docs</code>, <code>example</code> y todo <code>script:*</code>.</li>
+        <li><b>Diccionario</b>: <code>meta</code>, métodos HTTP, <code>headers</code>, <code>params:*</code>, <code>vars:*</code>, <code>assert</code>, <code>auth</code>, <code>auth:*</code>, formularios, <code>settings</code>…</li>
+        <li><b>Desconocido</b>: se intenta como diccionario; si falla, se <b>vuelve atrás</b> (<code>self.pos = start</code>) y se lee como texto. En la traza verás los pasos descartados tachados.</li>
+      </ul>
+      <button data-try="unknown">Probar bloque desconocido</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>¿Dónde acaba un bloque?</h3>
+      <p>En una línea que es exactamente <code>}</code> <b>en la columna 0</b> (se permiten espacios detrás). Por eso un JSON dentro de <code>body:json</code> no cierra el bloque: sus <code>}</code> van indentados.</p>
+<pre>body:json {
+  {
+    "a": 1
+  }        ← indentada: es texto
+}          ← columna 0: fin</pre>
+      <p>En un diccionario, si aparece otra cabecera como <code>get {</code> en la columna 0, se informa de que el bloque anterior no se cerró en vez de dar un error confuso.</p>
+      <button data-try="unclosed">Probar bloque sin cerrar</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>Texto: indentación</h3>
+      <p><code>text()</code> junta las líneas hasta el <code>}</code>:</p>
+      <ul>
+        <li>Se saltan las líneas <b>vacías del principio</b>.</li>
+        <li>A cada línea se le quitan <b>exactamente 2 espacios</b> si los tiene (los que añade Bruno al guardar). El resto de indentación se conserva.</li>
+        <li>Las líneas vacías del final sí se conservan.</li>
+      </ul>
+    </div>
+
+    <div class="panel rule">
+      <h3>Claves</h3>
+      <ul>
+        <li><b>Normal</b>: hasta <code>:</code>, espacio o tabulador. <code>url: x</code></li>
+        <li><b>Entre comillas</b>: permite <code>:</code>, espacios y llaves, con <code>\"</code> como escape. <code>"colon:key": x</code></li>
+        <li><b><code>~</code> delante</b>: el par existe pero está <b>deshabilitado</b> (<code>enabled: false</code>). Vale para las dos formas: <code>~key</code> y <code>~"key"</code>.</li>
+        <li><b>En <code>assert</code></b>: la clave llega hasta el <code>:</code> e incluye espacios: <code>res.body.items.length : gt 2</code>.</li>
+      </ul>
+      <p>Si después de la clave no hay <code>:</code> → <code>expected `:` after the key</code>.</p>
+      <button data-try="keys">Probar claves</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>Valores</h3>
+      <p>Tras el <code>:</code> se mira lo que viene:</p>
+      <ol class="decision">
+        <li>Solo <code>[</code> → <b>lista</b>: un elemento por línea hasta <code>]</code>.</li>
+        <li>Empieza por <code>'''</code> → <b>multilínea</b> hasta el siguiente <code>'''</code>. Se quitan <b>hasta 4 espacios</b> por línea y luego <code>trim</code>. Detrás solo se admite <code>@contentType(...)</code>, que se pega al valor.</li>
+        <li>Cualquier otra cosa → <b>resto de la línea</b> con <code>trim</code>. Puede ser vacío.</li>
+      </ol>
+      <button data-try="values">Probar valores</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>Anotaciones vs claves con <code>@</code></h3>
+      <p>Una línea que empieza por <code>@</code> puede ser dos cosas:</p>
+      <ul>
+        <li><b>Anotación</b>: <code>@nombre</code> o <code>@nombre(argumento)</code> y <b>nada más</b> en la línea. Se guarda y se asigna al siguiente par.</li>
+        <li><b>Clave</b>: si tras el nombre hay <code>:</code> u otro texto, <code>annotation()</code> devuelve <code>None</code>, restaura <code>pos</code> y se lee como par. Así funciona <code>@orderNumber: …</code> (variable local).</li>
+      </ul>
+      <p>El argumento puede ir con <code>'…'</code>, <code>"…"</code> (con escapes <code>\n \t \" \\</code>), <code>'''…'''</code> (multilínea) o sin comillas.</p>
+      <button data-try="annotations">Probar anotaciones</button>
+    </div>
+
+    <div class="panel rule">
+      <h3>Errores</h3>
+      <table class="plain">
+        <tr><td><code>unclosed block `x`</code></td><td>fin de fichero u otra cabecera antes del <code>}</code>. La línea es la de la cabecera.</td></tr>
+        <tr><td><code>expected `:` after the key</code></td><td>un par sin dos puntos</td></tr>
+        <tr><td><code>expected a key</code></td><td>una línea que empieza por <code>:</code></td></tr>
+        <tr><td><code>unclosed quoted key</code></td><td>falta la <code>"</code> de cierre en la misma línea</td></tr>
+        <tr><td><code>unclosed list</code></td><td>llega el <code>}</code> antes del <code>]</code></td></tr>
+        <tr><td><code>unclosed multiline value</code></td><td>no hay <code>'''</code> de cierre</td></tr>
+        <tr><td><code>expected a block</code></td><td>texto suelto fuera de un bloque</td></tr>
+      </table>
+      <p>Nunca hay panic: todo devuelve <code>Result&lt;_, ParseError&gt;</code>.</p>
+      <button data-try="missingcolon">Probar error</button>
+    </div>
+  </div>
+</section>
+
+<section id="mapeo">
+  <h2>4. De <code>Document</code> a <code>Request</code></h2>
+  <p class="lead"><code>bru.rs</code> produce bloques genéricos. <code>bru2struct.rs</code> busca los bloques por nombre y rellena el modelo. <code>yml2struct.rs</code> hace lo mismo con las claves del YAML de OpenCollection. Los valores por defecto son los de Bruno.</p>
+  <div class="panel" style="overflow:auto">
+    <table class="plain">
+      <tr><th>Campo de Request</th><th>.bru</th><th>.yml (OpenCollection)</th><th>Si falta</th></tr>
+      <tr><td><code>name</code>, <code>seq</code>, <code>tags</code></td><td><code>meta { name, seq, tags }</code></td><td><code>info.name</code>, <code>info.seq</code>, <code>info.tags</code></td><td><code>""</code> / "Untitled Request", <code>1</code>, <code>[]</code></td></tr>
+      <tr><td><code>kind</code></td><td><code>meta.type</code>: <code>graphql</code> o http</td><td><code>info.type</code>: <code>http</code> o <code>graphql</code></td><td>http. <code>grpc</code>/<code>ws</code> → error</td></tr>
+      <tr><td><code>method</code>, <code>url</code></td><td>primer bloque <code>get|post|…</code>, o <code>http { method }</code></td><td><code>http.method</code>, <code>http.url</code></td><td>error si no hay bloque. GET (http) / POST (graphql) en YAML</td></tr>
+      <tr><td><code>params</code></td><td><code>params:query</code>, <code>params:path</code> (y el antiguo <code>query</code>)</td><td><code>http.params[] { name, value, type, disabled }</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>headers</code></td><td><code>headers</code></td><td><code>http.headers[]</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>auth</code></td><td>modo en <code>get { auth: basic }</code> + datos en <code>auth:basic</code></td><td><code>http.auth { type, … }</code> o <code>inherit</code></td><td><code>None</code>. Modos sin soporte → <code>Unsupported</code></td></tr>
+      <tr><td><code>body</code></td><td>modo en <code>get { body: json }</code> + bloque <code>body:json</code></td><td><code>http.body { type, data }</code></td><td><code>None</code>. Modo desconocido → error</td></tr>
+      <tr><td><code>vars.pre_request</code></td><td><code>vars:pre-request</code> (<code>@x</code> = local)</td><td><code>runtime.variables[]</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>vars.post_response</code></td><td><code>vars:post-response</code></td><td><code>runtime.actions[]</code> con <code>set-variable</code> y <code>after-response</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>assertions</code></td><td><code>assert { res.status: eq 200 }</code></td><td><code>runtime.assertions[] { expression, operator, value }</code> → <code>"eq 200"</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>scripts</code>, <code>docs</code></td><td><code>script:pre-request</code>, <code>script:post-response</code>, <code>tests</code>, <code>docs</code></td><td><code>runtime.scripts[] { type, code }</code>, <code>docs</code></td><td><code>None</code></td></tr>
+      <tr><td><code>settings</code></td><td><code>settings { encodeUrl, timeout, followRedirects, maxRedirects }</code></td><td><code>settings</code></td><td><code>None</code> en cada campo</td></tr>
+    </table>
+  </div>
+  <p class="muted" style="margin-top:10px">En <code>.bru</code>, <code>get(key)</code> devuelve el <b>primer par habilitado</b> con esa clave. Los datos de auth usan el primer par aunque esté deshabilitado, igual que Bruno. En YAML, los números y booleanos sin comillas se convierten a texto (<code>ensureString</code>).</p>
+</section>
+
+<section id="coleccion">
+  <h2>5. Colección y orden</h2>
+  <p class="lead"><code>collection::load</code> sube desde la ruta hasta encontrar <code>opencollection.yml</code> (YAML) o <code>bruno.json</code> (bru). Si no encuentra ninguno, trata la carpeta como ficheros sueltos. Después recorre el árbol:</p>
+  <div class="rules">
+    <div class="panel rule">
+      <h3>Qué se salta</h3>
+      <ul>
+        <li><code>collection.*</code> y <code>folder.*</code>: no son peticiones, son los valores por defecto (<code>Defaults</code>).</li>
+        <li><code>environments/</code> en la raíz: se leen aparte como <code>Environment</code>.</li>
+        <li>Cualquier segmento <code>node_modules</code> o <code>.git</code>.</li>
+        <li>Rutas del <code>ignore</code>: iguales a la ruta relativa, o prefijo de carpeta (<code>skipped</code> ignora <code>skipped/a.bru</code>).</li>
+        <li>Ficheros del otro formato y enlaces simbólicos a carpetas.</li>
+      </ul>
+    </div>
+    <div class="panel rule">
+      <h3>En qué orden se ejecuta</h3>
+      <p>En cada carpeta: <b>primero las subcarpetas</b> (recorridas enteras), <b>luego las peticiones</b> por <code>seq</code>. Los ficheros que no se pueden parsear van al final.</p>
+      <p>Las carpetas usan <code>sortByNameThenSequence</code> de Bruno: orden alfabético, y después cada carpeta con un <code>seq</code> válido (entero ≥ 1) se inserta en la posición <code>seq − 1</code>. Si ya hay otra con el mismo <code>seq</code>, se agrupan.</p>
+    </div>
+  </div>
+  <div class="panel sort" style="margin-top:14px">
+    <div>
+      <b>Prueba el orden de carpetas</b>
+      <p class="muted" style="margin:4px 0 8px;font-size:13px">Una carpeta por línea: <code>nombre seq</code> (el seq es opcional).</p>
+      <textarea id="folders" spellcheck="false">a-folder 3
+b-folder 2
+c-folder
+users 1
+admin 1
+drafts 0.5</textarea>
+    </div>
+    <div>
+      <b>Resultado</b>
+      <ol id="sorted"></ol>
+      <div class="steps" id="sort-steps"></div>
+    </div>
+  </div>
+</section>
+
+<section id="fiabilidad">
+  <h2>6. ¿Me puedo fiar de esta página?</h2>
+  <div class="panel rule">
+    <p><code>parser.js</code> es una traducción línea a línea de <code>bru.rs</code> y <code>bru2struct.rs</code>, con la traza añadida. Para que no se desincronice hay una <b>prueba diferencial</b>: un pequeño crate (<code>tools/parser-guide/difftest</code>) compila los ficheros Rust reales con <code>#[path]</code>, y se comparan las dos salidas en JSON sobre:</p>
+    <ul>
+      <li>todos los <code>.bru</code> del repositorio,</li>
+      <li>casos límite escritos a mano (Unicode, CRLF, anotaciones, errores…),</li>
+      <li>6000 mutaciones aleatorias de esos ficheros (líneas borradas, duplicadas, reindentadas, <code>'''</code>, <code>}</code>, <code>~</code> sueltos…).</li>
+    </ul>
+    <p>Se ejecuta con <code>devenv shell parser-guide-check</code> y debe acabar en <code>mismatches=0</code>. Si cambias el parser en Rust, cambia también <code>parser.js</code>.</p>
+    <p class="muted">Lo que no está portado: <code>yml2struct</code> (necesitaría un parser YAML en el navegador) y el loader, aparte del algoritmo de orden de la sección 5.</p>
+  </div>
+  <footer>Servida con <code>devenv shell parser-guide</code> · yabruc</footer>
+</section>
+
+</main>
+
+<script src="parser.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const REPO = 'https://github.com/aitorru/yabruc/blob/feature/parser-guide/';
+
+// ---------------------------------------------------------------- Pipeline
+const STAGES = {
+  main: ['src/main.rs', 'Punto de entrada', 'Comprueba que la ruta existe, llama a <code>collection::load</code> y pide <code>requests_in(ruta)</code>: las peticiones dentro de esa ruta, ya ordenadas. Los ficheros con error se imprimen siempre (sin terminal las barras de indicatif no se ven) y hacen que el run acabe con exit 1.'],
+  loader: ['src/collection.rs', 'El loader', 'Busca la raíz subiendo por las carpetas y decide el formato. Lee <code>bruno.json</code> o <code>opencollection.yml</code> (nombre e <code>ignore</code>), los valores por defecto de la colección y de cada carpeta, y los entornos. Construye un árbol de <code>Item::Folder</code> e <code>Item::Request</code>, ordenado como Bruno. Cada fichero elige su parser por la extensión (<code>parser::parse_request</code>).'],
+  bru: ['src/parser/bru.rs', 'Sintaxis .bru', 'Convierte el texto en un <code>Document { blocks }</code>. Cada <code>Block</code> tiene nombre, línea y un <code>Content</code>: <code>Dictionary(Vec&lt;Pair&gt;)</code>, <code>Text(String)</code>, <code>Array(Vec&lt;String&gt;)</code> o <code>Inline(String)</code>. No sabe qué es una URL ni un header: solo sintaxis. Es lo que ves en el playground.'],
+  yaml: ['Cargo.toml', 'YAML', 'Para OpenCollection se usa <code>serde_yaml_ng</code> y se trabaja con <code>serde_yaml_ng::Value</code> en lugar de structs con <code>derive</code>, porque OpenCollection acepta números o booleanos donde Bruno espera texto.'],
+  bru2struct: ['src/parser/bru2struct.rs', 'Significado (.bru)', '<code>document_to_request</code> busca bloques por nombre (<code>document.block("headers")</code>) y construye el <code>Request</code>. También <code>document_to_defaults</code> para <code>collection.bru</code>/<code>folder.bru</code> y <code>document_to_environment</code> para <code>environments/*.bru</code>.'],
+  yml2struct: ['src/parser/yml2struct.rs', 'Significado (.yml)', 'Replica el mapeo de <code>@usebruno/filestore</code>: <code>info</code>, <code>http</code>/<code>graphql</code>, <code>runtime</code> (variables, actions, assertions, scripts), <code>settings</code> y <code>docs</code>. Hay un test de paridad que comprueba que la misma petición en .bru y .yml da un <code>Request</code> idéntico.'],
+  model: ['src/model.rs', 'El modelo', '<code>Request</code> con <code>params</code>, <code>headers</code>, <code>auth</code>, <code>body</code>, <code>vars</code>, <code>assertions</code>, <code>scripts</code>, <code>settings</code> y <code>docs</code>, más <code>Defaults</code> y <code>Environment</code>. Refleja el item interno de Bruno para que los dos formatos converjan en lo mismo.'],
+};
+function showStage(key) {
+  document.querySelectorAll('.stage').forEach((s) => s.classList.toggle('active', s.dataset.stage === key));
+  const [file, title, text] = STAGES[key];
+  $('stage-detail').innerHTML = '<h3>' + title + ' · <a href="' + REPO + file + '" target="_blank" rel="noopener"><code>' + file + '</code></a></h3><div>' + text + '</div>';
+}
+document.querySelectorAll('.stage').forEach((s) => s.addEventListener('click', () => showStage(s.dataset.stage)));
+showStage('bru');
+
+// ---------------------------------------------------------------- Presets
+const PRESETS = [
+  { id: 'request', name: 'Petición completa', mode: 'request', source: `meta {
+  name: Create user
+  type: http
+  seq: 3
+  tags: [
+    users
+    smoke
+  ]
+}
+
+post {
+  url: https://api.example.com/users/:team?verbose=true
+  body: json
+  auth: basic
+}
+
+params:query {
+  verbose: true
+  ~page: 2
+}
+
+params:path {
+  team: core
+}
+
+headers {
+  content-type: application/json
+  ~x-debug: 1
+}
+
+auth:basic {
+  username: {{user}}
+  password: secret
+}
+
+body:json {
+  {
+    "name": "John Doe",
+    "tags": ["a", "b"]
+  }
+}
+
+vars:pre-request {
+  user: john
+}
+
+vars:post-response {
+  userId: res.body.id
+}
+
+assert {
+  res.status: eq 201
+  res.body: isJson
+}
+
+docs {
+  Creates a new user.
+}
+` },
+  { id: 'headers', name: 'Tipos de cabecera', mode: 'environment', source: `vars {
+  host: http://localhost:3000
+}
+
+docs {}
+
+vars:secret [
+  token,
+  ~password
+]
+
+extends [base, "shared values"]
+
+color: #ff6600
+` },
+  { id: 'unknown', name: 'Bloque desconocido', mode: 'request', source: `get {
+  url: http://localhost
+}
+
+future:dictionary {
+  key: value
+}
+
+future:text {
+  this has no colon, so it is text
+  and the dictionary attempt is discarded
+}
+` },
+  { id: 'unclosed', name: 'Error: bloque sin cerrar', mode: 'request', source: `meta {
+  name: Forgot the brace
+
+get {
+  url: http://localhost
+}
+` },
+  { id: 'keys', name: 'Claves', mode: 'request', source: `get {
+  url: http://localhost
+}
+
+headers {
+  content-type: application/json
+  "key with spaces": allowed
+  "colon:header": allowed
+  "nested \\"quote\\"": allowed
+  ~x-disabled: 1
+  ~"disabled:quoted": 2
+}
+
+assert {
+  res.body.items.length : gt 2
+  ~res.status: eq 200
+}
+` },
+  { id: 'values', name: 'Valores: listas y multilínea', mode: 'request', source: `meta {
+  name: Upload
+  tags: [
+    upload
+    files
+  ]
+}
+
+post {
+  url: http://localhost/upload
+  body: multipartForm
+}
+
+body:multipart-form {
+  avatar: @file(me.png|me-2x.png)
+  metadata: '''
+    {
+      "public": true
+    }
+  ''' @contentType(application/json)
+  empty:
+}
+` },
+  { id: 'annotations', name: 'Anotaciones y claves con @', mode: 'request', source: `get {
+  url: http://localhost/orders
+}
+
+vars:pre-request {
+  @description('The id of the user')
+  userId: 42
+  @number
+  @description('''
+    Several lines
+      keep their relative indentation
+  ''')
+  limit: 10
+}
+
+vars:post-response {
+  token: res.body.token
+  @orderNumber: res.body.order
+  ~@transactionId: res.body.transaction
+}
+` },
+  { id: 'collection', name: 'collection.bru', mode: 'defaults', source: `meta {
+  name: My API
+}
+
+headers {
+  x-api-version: 2
+}
+
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: https://api.example.com
+}
+
+script:pre-request {
+  console.log("before every request");
+}
+` },
+  { id: 'missingcolon', name: 'Error: falta ":"', mode: 'request', source: `get {
+  url http://localhost
+}
+` },
+  { id: 'crlf', name: 'Body GraphQL', mode: 'request', source: `meta {
+  name: Launches
+  type: graphql
+}
+
+post {
+  url: https://spacex.example.com/graphql
+  body: graphql
+  auth: inherit
+}
+
+body:graphql {
+  {
+    launchesPast(limit: 5) {
+      mission_name
+    }
+  }
+}
+
+body:graphql:vars {
+  {
+    "limit": 5
+  }
+}
+` },
+];
+
+PRESETS.forEach((p) => $('preset').insertAdjacentHTML('beforeend', '<option value="' + p.id + '">' + esc(p.name) + '</option>'));
+function loadPreset(id) {
+  const preset = PRESETS.find((p) => p.id === id);
+  $('preset').value = id;
+  $('mode').value = preset.mode;
+  $('source').value = preset.source;
+  $('source').scrollTop = 0;
+  run(true);
+}
+$('preset').addEventListener('change', (e) => loadPreset(e.target.value));
+$('mode').addEventListener('change', () => run(false));
+document.querySelectorAll('[data-try]').forEach((b) => b.addEventListener('click', () => {
+  loadPreset(b.dataset.try);
+  $('playground').scrollIntoView({ behavior: 'smooth' });
+}));
+
+// ---------------------------------------------------------------- Playground
+let state = { result: null, step: 0, lineKinds: [], headerLines: new Set() };
+
+function run(resetStep) {
+  const result = BruParser.parse($('source').value);
+  state.result = result;
+  const events = result.events;
+  state.step = resetStep ? 0 : Math.min(state.step, events.length - 1);
+  if (result.error) state.step = resetStep ? 0 : state.step;
+
+  // Kind of block of each line, from the start of a block to the start of the next one.
+  const lines = result.source.split('\n');
+  state.lineKinds = new Array(lines.length).fill(null);
+  state.headerLines = new Set();
+  if (result.document) {
+    const blocks = result.document.blocks;
+    blocks.forEach((block, i) => {
+      state.headerLines.add(block.line);
+      let end = i + 1 < blocks.length ? blocks[i + 1].line - 1 : lines.length;
+      // Do not color the empty lines between blocks.
+      while (end > block.line && lines[end - 1].trim() === '') end--;
+      for (let l = block.line; l <= end; l++) state.lineKinds[l - 1] = block.content.type;
+    });
+  }
+
+  $('slider').max = Math.max(events.length - 1, 0);
+  renderStatus();
+  renderEvents();
+  renderStep();
+  renderDocument();
+  renderResult();
+}
+
+function renderStatus() {
+  const r = state.result;
+  const el = $('status');
+  if (r.error) {
+    el.className = 'status bad';
+    el.innerHTML = '❌ ' + formatMessage(r.error.message);
+  } else {
+    const blocks = r.document.blocks;
+    const count = (t) => blocks.filter((b) => b.content.type === t).length;
+    el.className = 'status ok';
+    el.innerHTML = '✅ ' + blocks.length + ' bloque(s): ' + count('Dictionary') + ' diccionario, ' + count('Text') + ' texto, ' + count('Array') + ' array, ' + count('Inline') + ' inline · ' + r.events.length + ' pasos';
+  }
+}
+
+function renderEditor() {
+  const lines = state.result.source.split('\n');
+  const event = state.result.events[state.step];
+  const cursorLine = event ? event.line : -1;
+  const errorLine = state.result.error ? state.result.error.line : -1;
+  $('gutter').innerHTML = lines.map((_, i) => '<div' + (i + 1 === errorLine ? ' class="err"' : '') + '>' + (i + 1) + '</div>').join('');
+  $('hl').innerHTML = lines.map((text, i) => {
+    const classes = [];
+    if (state.lineKinds[i]) classes.push('k-' + state.lineKinds[i]);
+    if (state.headerLines.has(i + 1)) classes.push('header');
+    if (i + 1 === cursorLine) classes.push('cursor');
+    if (i + 1 === errorLine && event && event.fn === 'error') classes.push('errline');
+    return '<div class="' + classes.join(' ') + '">' + (esc(text) || ' ') + '</div>';
+  }).join('');
+  syncScroll();
+}
+
+function syncScroll() {
+  const top = $('source').scrollTop;
+  $('gutter').scrollTop = top;
+  $('hl').scrollTop = top;
+  $('hl').scrollLeft = $('source').scrollLeft;
+}
+
+function renderEvents() {
+  $('events').innerHTML = state.result.events.map((e, i) =>
+    '<li data-i="' + i + '" class="' + (e.discarded ? 'discarded' : '') + '"><span class="ln">' + e.line + '</span><span class="fn ' + e.fn + '">' + e.fn + '</span><span>' + formatMessage(e.message) + '</span></li>'
+  ).join('');
+}
+
+const formatMessage = (m) => esc(m).replace(/`([^`]*)`/g, '<code>$1</code>');
+
+function renderStep() {
+  const events = state.result.events;
+  const event = events[state.step];
+  $('slider').value = state.step;
+  $('count').textContent = events.length ? (state.step + 1) + ' / ' + events.length : '0 / 0';
+  $('first').disabled = $('prev').disabled = state.step <= 0;
+  $('next').disabled = $('last').disabled = state.step >= events.length - 1;
+  $('now').innerHTML = event
+    ? '<span class="fn ' + event.fn + '">' + event.fn + '()</span> línea ' + event.line + (event.discarded ? ' <span class="muted">(descartado)</span>' : '') + '<br>' + formatMessage(event.message)
+    : '<span class="muted">No hay pasos.</span>';
+  document.querySelectorAll('#events li').forEach((li) => li.classList.toggle('on', Number(li.dataset.i) === state.step));
+  const on = document.querySelector('#events li.on');
+  if (on) on.scrollIntoView({ block: 'nearest' });
+  renderEditor();
+  if (event) revealLine(event.line);
+}
+
+function revealLine(line) {
+  const ta = $('source');
+  const top = (line - 1) * 20;
+  if (top < ta.scrollTop || top > ta.scrollTop + ta.clientHeight - 50) {
+    ta.scrollTop = Math.max(0, top - ta.clientHeight / 3);
+    syncScroll();
+  }
+}
+
+function go(step) {
+  const n = state.result.events.length;
+  state.step = Math.max(0, Math.min(n - 1, step));
+  renderStep();
+}
+$('first').onclick = () => go(0);
+$('prev').onclick = () => go(state.step - 1);
+$('next').onclick = () => go(state.step + 1);
+$('last').onclick = () => go(state.result.events.length - 1);
+$('slider').oninput = (e) => go(Number(e.target.value));
+$('events').addEventListener('click', (e) => {
+  const li = e.target.closest('li');
+  if (li) go(Number(li.dataset.i));
+});
+
+function renderValue(value) {
+  if (value.type === 'List') return '[' + value.value.map((v) => esc(v)).join(', ') + ']<span class="muted"> · lista</span>';
+  return value.value === '' ? '<span class="muted">(vacío)</span>' : esc(value.value);
+}
+
+function renderDocument() {
+  const r = state.result;
+  if (!r.document) {
+    $('doc').innerHTML = '<div class="errbox">No hay <code>Document</code>: <code>bru::parse</code> devolvió <code>Err</code>.<p>' + formatMessage(r.error.message) + '</p></div>';
+    return;
+  }
+  if (!r.document.blocks.length) {
+    $('doc').innerHTML = '<p class="muted">Document { blocks: [] }</p>';
+    return;
+  }
+  $('doc').innerHTML = r.document.blocks.map((b) => {
+    let body = '';
+    const c = b.content;
+    if (c.type === 'Dictionary') {
+      body = c.value.length
+        ? '<table><tr><th>clave</th><th>valor</th></tr>' + c.value.map((p) =>
+            '<tr class="' + (p.enabled ? '' : 'off') + '"><td class="k">' + esc(p.key) + (p.enabled ? '' : ' <span class="muted">~</span>') +
+            p.annotations.map((a) => '<span class="ann">@' + esc(a.name) + (a.value === null ? '' : '(' + esc(a.value) + ')') + '</span>').join('') +
+            '</td><td class="v">' + renderValue(p.value) + '</td></tr>').join('') + '</table>'
+        : '<pre class="muted">sin pares</pre>';
+    } else if (c.type === 'Text') {
+      body = '<pre>' + (esc(c.value) || '<span class="muted">(vacío)</span>') + '</pre>';
+    } else if (c.type === 'Array') {
+      body = '<pre>' + c.value.map((v) => '• ' + esc(v)).join('\n') + '</pre>';
+    } else {
+      body = '<pre>' + esc(c.value) + '</pre>';
+    }
+    return '<div class="card"><div class="head" data-line="' + b.line + '"><b>' + esc(b.name) + '</b><span class="badge ' + c.type + '">' + c.type + '</span><span class="ln">línea ' + b.line + '</span></div>' + body + '</div>';
+  }).join('');
+}
+$('doc').addEventListener('click', (e) => {
+  const head = e.target.closest('.head');
+  if (!head) return;
+  const line = Number(head.dataset.line);
+  const i = state.result.events.findIndex((ev) => ev.fn === 'block' && ev.line === line);
+  if (i >= 0) { go(i); selectTab('trace'); }
+});
+
+function highlightJson(value) {
+  const json = JSON.stringify(value, (k, v) => (typeof v === 'number' && !Number.isFinite(v) ? String(v) : v), 2);
+  return esc(json).replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, (m, str, colon, bool) => {
+    if (str) return colon ? '<span class="key">' + str + '</span>' + colon : '<span class="s">' + str + '</span>';
+    if (bool) return '<span class="b">' + m + '</span>';
+    if (m === 'null') return '<span class="null">null</span>';
+    return '<span class="n">' + m + '</span>';
+  });
+}
+
+const RESULT_TITLES = {
+  request: ['bru2struct::document_to_request', 'Request'],
+  defaults: ['bru2struct::document_to_defaults', 'Defaults'],
+  environment: ['bru2struct::document_to_environment', 'Environment'],
+};
+function renderResult() {
+  const r = state.result;
+  const mode = $('mode').value;
+  const [fn, type] = RESULT_TITLES[mode];
+  if (!r.document) {
+    $('result').innerHTML = '<div class="errbox">El parser de sintaxis falló, así que <code>' + fn + '</code> no llega a ejecutarse.<p>' + formatMessage(r.error.message) + '</p></div>';
+    return;
+  }
+  try {
+    const value = mode === 'request' ? BruParser.documentToRequest(r.document)
+      : mode === 'defaults' ? BruParser.documentToDefaults(r.document)
+      : BruParser.documentToEnvironment('local', r.document);
+    $('result').innerHTML = '<div class="now"><code>' + fn + '(&amp;document)</code> → <code>' + type + '</code>' + (mode === 'environment' ? ' <span class="muted">(el nombre sale del fichero; aquí “local”)</span>' : '') + '</div><pre class="json">' + highlightJson(value) + '</pre>';
+  } catch (error) {
+    $('result').innerHTML = '<div class="errbox">La sintaxis es correcta, pero <code>' + fn + '</code> devolvió <code>Err</code>:<p>' + formatMessage(error.message) + '</p></div>';
+  }
+}
+
+function selectTab(name) {
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-' + name));
+}
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
+
+let timer = null;
+$('source').addEventListener('input', () => {
+  renderEditorOnly();
+  clearTimeout(timer);
+  timer = setTimeout(() => run(false), 120);
+});
+$('source').addEventListener('scroll', syncScroll);
+$('source').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target;
+    const s = ta.selectionStart;
+    ta.setRangeText('  ', s, ta.selectionEnd, 'end');
+    ta.dispatchEvent(new Event('input'));
+  }
+});
+// Keeps the line backgrounds aligned while typing, before the parser runs again.
+function renderEditorOnly() {
+  const lines = $('source').value.split('\n');
+  if (lines.length !== $('gutter').children.length) {
+    $('gutter').innerHTML = lines.map((_, i) => '<div>' + (i + 1) + '</div>').join('');
+    $('hl').innerHTML = lines.map((t) => '<div>' + (esc(t) || ' ') + '</div>').join('');
+  }
+  syncScroll();
+}
+
+// ---------------------------------------------------------------- Folder sort (collection.rs sort_folders)
+function sortFolders(folders) {
+  const validSeq = (f) => (f.seq !== null && Number.isInteger(f.seq) && f.seq >= 1 ? f.seq : null);
+  const sorted = [...folders].sort((a, b) => {
+    const la = a.name.toLowerCase(), lb = b.name.toLowerCase();
+    return la < lb ? -1 : la > lb ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  const steps = ['Orden alfabético: ' + sorted.map((f) => f.name).join(', ')];
+  const withSeq = sorted.filter((f) => validSeq(f) !== null).sort((a, b) => validSeq(a) - validSeq(b));
+  const groups = sorted.filter((f) => validSeq(f) === null).map((f) => [f]);
+  steps.push('Sin seq válido se quedan en ese orden: ' + (groups.map((g) => g[0].name).join(', ') || '—'));
+  for (const folder of withSeq) {
+    const seq = validSeq(folder);
+    const position = seq - 1;
+    const group = groups[position];
+    if (group && validSeq(group[0]) === seq) {
+      group.push(folder);
+      steps.push('<code>' + esc(folder.name) + '</code> (seq ' + seq + ') se agrupa con <code>' + esc(group[0].name) + '</code>');
+    } else {
+      groups.splice(Math.min(position, groups.length), 0, [folder]);
+      steps.push('<code>' + esc(folder.name) + '</code> (seq ' + seq + ') se inserta en la posición ' + (Math.min(position, groups.length - 1) + 1));
+    }
+  }
+  return { result: groups.flat(), steps };
+}
+function renderSort() {
+  const folders = $('folders').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const parts = l.split(/\s+/);
+    const seq = parts.length > 1 ? Number(parts[parts.length - 1]) : null;
+    return { name: parts.length > 1 && !Number.isNaN(seq) ? parts.slice(0, -1).join(' ') : l, seq: parts.length > 1 && !Number.isNaN(seq) ? seq : null };
+  });
+  const { result, steps } = sortFolders(folders);
+  $('sorted').innerHTML = result.map((f) => '<li>' + esc(f.name) + (f.seq === null ? '' : ' <span class="muted">seq ' + f.seq + '</span>') + '</li>').join('');
+  $('sort-steps').innerHTML = steps.map((s) => '· ' + s).join('<br>');
+}
+$('folders').addEventListener('input', renderSort);
+renderSort();
+
+loadPreset('request');
+</script>
+</body>
+</html>

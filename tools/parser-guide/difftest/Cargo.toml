@@ -1,0 +1,10 @@
+# Compiles the real parser of yabruc to compare it with parser.js. See ../difftest.js.
+[package]
+name = "difftest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+reqwest = "0.13.5"
+serde_json = "1"
