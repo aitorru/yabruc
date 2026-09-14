@@ -6,13 +6,93 @@
 use serde_yaml_ng::Value;
 
 use crate::model::{
-    ApiKeyPlacement, Auth, Body, FileBody, KeyValue, MultipartField, MultipartValue, Param,
-    ParamKind, Request, RequestKind, Scripts, Settings, Variable, Vars,
+    ApiKeyPlacement, Auth, Body, Defaults, Environment, EnvironmentVariable, FileBody, KeyValue,
+    MultipartField, MultipartValue, Param, ParamKind, Request, RequestKind, Scripts, Settings,
+    Variable, Vars,
 };
 
+/// Configuration of a collection, read from `opencollection.yml`.
+#[derive(Debug, PartialEq, Clone)]
+pub struct CollectionConfig {
+    pub name: String,
+    pub ignore: Vec<String>,
+    pub defaults: Defaults,
+}
+
 pub fn parse(source: &str) -> Result<Request, String> {
-    let root: Value = serde_yaml_ng::from_str(source).map_err(|error| error.to_string())?;
-    yaml_to_request(&root)
+    yaml_to_request(&load(source)?)
+}
+
+/// Reads a `folder.yml` file.
+pub fn parse_folder(source: &str) -> Result<Defaults, String> {
+    Ok(yaml_to_defaults(&load(source)?))
+}
+
+/// Reads an `opencollection.yml` file.
+pub fn parse_collection(source: &str) -> Result<CollectionConfig, String> {
+    let root = load(source)?;
+    Ok(CollectionConfig {
+        name: match text(&root["info"]["name"]) {
+            name if name.is_empty() => "Untitled Collection".to_string(),
+            name => name,
+        },
+        ignore: list(&root["extensions"]["bruno"]["ignore"])
+            .iter()
+            .map(text)
+            .collect(),
+        defaults: yaml_to_defaults(&root),
+    })
+}
+
+/// Reads an environment file. `file_name` is used when the environment has no name.
+pub fn parse_environment(file_name: &str, source: &str) -> Result<Environment, String> {
+    let root = load(source)?;
+    Ok(Environment {
+        name: match text(&root["name"]) {
+            name if name.is_empty() => file_name.to_string(),
+            name => name,
+        },
+        variables: list(&root["variables"])
+            .iter()
+            .map(|variable| {
+                let secret = variable["secret"].as_bool() == Some(true);
+                EnvironmentVariable {
+                    name: text(&variable["name"]),
+                    value: if secret {
+                        String::new()
+                    } else {
+                        variable_value(&variable["value"])
+                    },
+                    enabled: enabled(variable),
+                    secret,
+                }
+            })
+            .collect(),
+        extends: match &root["extends"] {
+            Value::Sequence(names) => names.iter().map(text).collect(),
+            name => Some(text(name))
+                .into_iter()
+                .filter(|name| !name.is_empty())
+                .collect(),
+        },
+    })
+}
+
+fn load(source: &str) -> Result<Value, String> {
+    serde_yaml_ng::from_str(source).map_err(|error| error.to_string())
+}
+
+fn yaml_to_defaults(root: &Value) -> Defaults {
+    let request = &root["request"];
+    Defaults {
+        name: Some(text(&root["info"]["name"])).filter(|name| !name.is_empty()),
+        seq: root["info"]["seq"].as_f64(),
+        headers: key_values(&request["headers"]),
+        auth: auth(&request["auth"]),
+        vars: vars(request),
+        scripts: scripts(&request["scripts"]),
+        docs: Some(description(&root["docs"])).filter(|docs| !docs.is_empty()),
+    }
 }
 
 fn yaml_to_request(root: &Value) -> Result<Request, String> {
@@ -68,30 +148,7 @@ fn yaml_to_request(root: &Value) -> Result<Request, String> {
         headers: key_values(&details["headers"]),
         auth: auth(&details["auth"]),
         body,
-        vars: Vars {
-            pre_request: list(&runtime["variables"])
-                .iter()
-                .map(|variable| Variable {
-                    name: text(&variable["name"]),
-                    value: variable_value(&variable["value"]),
-                    enabled: enabled(variable),
-                    local: false,
-                })
-                .collect(),
-            post_response: list(&runtime["actions"])
-                .iter()
-                .filter(|action| {
-                    action["type"].as_str() == Some("set-variable")
-                        && action["phase"].as_str() == Some("after-response")
-                })
-                .map(|action| Variable {
-                    name: text(&action["variable"]["name"]),
-                    value: text(&action["selector"]["expression"]),
-                    enabled: enabled(action),
-                    local: false,
-                })
-                .collect(),
-        },
+        vars: vars(runtime),
         assertions: list(&runtime["assertions"])
             .iter()
             .map(|assertion| KeyValue {
@@ -107,6 +164,34 @@ fn yaml_to_request(root: &Value) -> Result<Request, String> {
         settings: settings(&root["settings"]),
         docs: Some(description(&root["docs"])).filter(|docs| !docs.is_empty()),
     })
+}
+
+/// Reads the pre-request `variables` and the post-response `actions` of a request or folder.
+fn vars(value: &Value) -> Vars {
+    Vars {
+        pre_request: list(&value["variables"])
+            .iter()
+            .map(|variable| Variable {
+                name: text(&variable["name"]),
+                value: variable_value(&variable["value"]),
+                enabled: enabled(variable),
+                local: false,
+            })
+            .collect(),
+        post_response: list(&value["actions"])
+            .iter()
+            .filter(|action| {
+                action["type"].as_str() == Some("set-variable")
+                    && action["phase"].as_str() == Some("after-response")
+            })
+            .map(|action| Variable {
+                name: text(&action["variable"]["name"]),
+                value: text(&action["selector"]["expression"]),
+                enabled: enabled(action),
+                local: false,
+            })
+            .collect(),
+    }
 }
 
 /// Converts a scalar to a string, like `ensureString` in Bruno.
@@ -414,6 +499,64 @@ mod tests {
             }
         );
         assert_eq!(auth("oauth2"), Auth::Unsupported("oauth2".into()));
+    }
+
+    #[test]
+    fn parses_collections_folders_and_environments() {
+        let collection =
+            parse_collection(include_str!("../../test/fixtures/yml/opencollection.yml")).unwrap();
+        assert_eq!(collection.name, "Test OpenCollection");
+        assert_eq!(collection.ignore, ["node_modules", ".git"]);
+        assert_eq!(
+            collection.defaults.headers,
+            [KeyValue {
+                name: "X-Collection-Header".into(),
+                value: "collection-header-value".into(),
+                enabled: true,
+            }]
+        );
+        assert_eq!(collection.defaults.auth, Auth::None);
+
+        let folder = parse_folder("info:\n  name: Users\n  seq: 2\nrequest:\n  auth:\n    type: bearer\n    token: abc\n  variables:\n    - name: role\n      value: admin\n").unwrap();
+        assert_eq!(folder.name.as_deref(), Some("Users"));
+        assert_eq!(folder.seq, Some(2.0));
+        assert_eq!(
+            folder.auth,
+            Auth::Bearer {
+                token: "abc".into()
+            }
+        );
+        assert_eq!(folder.vars.pre_request[0].value, "admin");
+
+        let environment =
+            parse_environment("dev", include_str!("../../test/fixtures/yml/dev.yml")).unwrap();
+        assert_eq!(environment.name, "Development");
+        assert_eq!(environment.variables.len(), 2);
+        assert_eq!(
+            environment.variables[0].value,
+            "https://api.dev.example.com"
+        );
+
+        let environment = parse_environment("local", "variables:\n  - name: token\n    secret: true\n  - name: port\n    value: 80\n    disabled: true\nextends: base\n").unwrap();
+        assert_eq!(environment.name, "local");
+        assert_eq!(environment.extends, ["base"]);
+        assert_eq!(
+            environment.variables,
+            [
+                EnvironmentVariable {
+                    name: "token".into(),
+                    value: String::new(),
+                    enabled: true,
+                    secret: true,
+                },
+                EnvironmentVariable {
+                    name: "port".into(),
+                    value: "80".into(),
+                    enabled: false,
+                    secret: false,
+                },
+            ]
+        );
     }
 
     #[test]

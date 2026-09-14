@@ -1,0 +1,14 @@
+opencollection: "1.0.0"
+info:
+  name: Yml fixture
+
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git
+
+request:
+  headers:
+    - name: x-collection
+      value: "1"

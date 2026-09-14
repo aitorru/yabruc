@@ -1,7 +1,8 @@
-use super::bru::{Block, Document, Value};
+use super::bru::{Block, Content, Document, Value};
 use crate::model::{
-    ApiKeyPlacement, Auth, Body, FileBody, KeyValue, MultipartField, MultipartValue, Param,
-    ParamKind, Request, RequestKind, Scripts, Settings, Variable, Vars,
+    ApiKeyPlacement, Auth, Body, Defaults, Environment, EnvironmentVariable, FileBody, KeyValue,
+    MultipartField, MultipartValue, Param, ParamKind, Request, RequestKind, Scripts, Settings,
+    Variable, Vars,
 };
 
 const METHODS: [&str; 9] = [
@@ -54,19 +55,78 @@ pub fn document_to_request(document: &Document) -> Result<Request, String> {
         headers: key_values(document.block("headers")),
         auth: auth(document, request.get("auth").unwrap_or("none")),
         body: body(document, request.get("body").unwrap_or("none"))?,
-        vars: Vars {
-            pre_request: variables(document.block("vars:pre-request")),
-            post_response: variables(document.block("vars:post-response")),
-        },
+        vars: vars(document),
         assertions: key_values(document.block("assert")),
-        scripts: Scripts {
-            pre_request: text(document, "script:pre-request"),
-            post_response: text(document, "script:post-response"),
-            tests: text(document, "tests"),
-        },
+        scripts: scripts(document),
         settings: settings(document.block("settings")),
         docs: text(document, "docs"),
     })
+}
+
+/// Reads the request defaults of a `collection.bru` or `folder.bru` file.
+pub fn document_to_defaults(document: &Document) -> Defaults {
+    let meta = document.block("meta");
+    let mode = document
+        .block("auth")
+        .and_then(|auth| auth.get("mode"))
+        .unwrap_or("none");
+    Defaults {
+        name: meta.and_then(|meta| meta.get("name")).map(str::to_string),
+        seq: meta
+            .and_then(|meta| meta.get("seq"))
+            .and_then(|seq| seq.parse().ok()),
+        headers: key_values(document.block("headers")),
+        auth: auth(document, mode),
+        vars: vars(document),
+        scripts: scripts(document),
+        docs: text(document, "docs"),
+    }
+}
+
+/// Reads an environment file, named after the file.
+pub fn document_to_environment(name: &str, document: &Document) -> Environment {
+    let mut variables: Vec<EnvironmentVariable> = key_values(document.block("vars"))
+        .into_iter()
+        .map(|pair| EnvironmentVariable {
+            name: pair.name,
+            value: pair.value,
+            enabled: pair.enabled,
+            secret: false,
+        })
+        .collect();
+    if let Some(Content::Array(names)) = document.block("vars:secret").map(|block| &block.content) {
+        variables.extend(names.iter().map(|name| EnvironmentVariable {
+            name: name.strip_prefix('~').unwrap_or(name).to_string(),
+            value: String::new(),
+            enabled: !name.starts_with('~'),
+            secret: true,
+        }));
+    }
+    let extends = match document.block("extends").map(|block| &block.content) {
+        Some(Content::Inline(name)) => vec![name.clone()],
+        Some(Content::Array(names)) => names.clone(),
+        _ => vec![],
+    };
+    Environment {
+        name: name.to_string(),
+        variables,
+        extends,
+    }
+}
+
+fn vars(document: &Document) -> Vars {
+    Vars {
+        pre_request: variables(document.block("vars:pre-request")),
+        post_response: variables(document.block("vars:post-response")),
+    }
+}
+
+fn scripts(document: &Document) -> Scripts {
+    Scripts {
+        pre_request: text(document, "script:pre-request"),
+        post_response: text(document, "script:post-response"),
+        tests: text(document, "tests"),
+    }
 }
 
 fn text(document: &Document, name: &str) -> Option<String> {
@@ -546,6 +606,79 @@ mod tests {
             assert_eq!(request.method, method);
             assert_eq!(request.url, "http://localhost:1234");
         }
+    }
+
+    #[test]
+    fn maps_official_collection_fixture_to_defaults() {
+        let defaults = document_to_defaults(
+            &bru::parse(include_str!("../../test/fixtures/bru/collection.bru")).unwrap(),
+        );
+        assert_eq!(defaults.name, None);
+        assert_eq!(defaults.headers.len(), 3);
+        assert_eq!(
+            defaults.headers[2],
+            key_value("transaction-id", "{{transactionId}}", false)
+        );
+        // `auth { mode: none }` wins over the `auth:*` blocks
+        assert_eq!(defaults.auth, Auth::None);
+        assert_eq!(defaults.vars.pre_request.len(), 2);
+        assert_eq!(
+            defaults.scripts.post_response.as_deref(),
+            Some("console.log(\"In Collection post Request Script\");")
+        );
+
+        let defaults = document_to_defaults(
+            &bru::parse("meta {\n  name: Users\n  seq: 2\n}\n\nauth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: abc\n}\n")
+                .unwrap(),
+        );
+        assert_eq!(defaults.name.as_deref(), Some("Users"));
+        assert_eq!(defaults.seq, Some(2.0));
+        assert_eq!(
+            defaults.auth,
+            Auth::Bearer {
+                token: "abc".into()
+            }
+        );
+    }
+
+    #[test]
+    fn maps_environments() {
+        let environment = document_to_environment(
+            "local",
+            &bru::parse("vars {\n  host: http://localhost\n  ~port: 80\n}\nvars:secret [\n  token,\n  ~password\n]\ncolor: #ff0000\nextends: base\n")
+                .unwrap(),
+        );
+        assert_eq!(environment.name, "local");
+        assert_eq!(environment.extends, ["base"]);
+        assert_eq!(
+            environment.variables,
+            [
+                EnvironmentVariable {
+                    name: "host".into(),
+                    value: "http://localhost".into(),
+                    enabled: true,
+                    secret: false,
+                },
+                EnvironmentVariable {
+                    name: "port".into(),
+                    value: "80".into(),
+                    enabled: false,
+                    secret: false,
+                },
+                EnvironmentVariable {
+                    name: "token".into(),
+                    value: String::new(),
+                    enabled: true,
+                    secret: true,
+                },
+                EnvironmentVariable {
+                    name: "password".into(),
+                    value: String::new(),
+                    enabled: false,
+                    secret: true,
+                },
+            ]
+        );
     }
 
     #[test]
