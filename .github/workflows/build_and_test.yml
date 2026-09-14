@@ -3,17 +3,21 @@ name: Build and test Rust code
 on:
     push:
         branches: [trunk]
+    pull_request:
+    workflow_dispatch:
 
 jobs:
     test:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
-            - uses: cachix/install-nix-action@v26
-            - uses: cachix/cachix-action@v14
+            - uses: actions/checkout@v7
+            - uses: cachix/install-nix-action@v31
+            - uses: cachix/cachix-action@v17
               with:
                 name: devenv
             - name: Install devenv.sh
-              run: nix profile install nixpkgs#devenv
+              run: nix profile add nixpkgs#devenv
             - name: Build and test
-              run: devenv test
+              run: devenv --no-tui test
+            - name: Audit dependencies
+              run: devenv --no-tui shell -- cargo audit
