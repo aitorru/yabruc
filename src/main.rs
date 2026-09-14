@@ -10,6 +10,7 @@ use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
 
 mod hermes;
+mod model;
 mod parser;
 use colored::Colorize;
 
@@ -66,7 +67,7 @@ async fn main() {
 }
 
 async fn execute_collection(
-    queries: Vec<parser::bru2struct::Dog>,
+    queries: Vec<model::Request>,
     parsed_all: bool,
     multi_bar: &MultiProgress,
 ) {
@@ -78,11 +79,11 @@ async fn execute_collection(
     }
 
     let mut results_bools = vec![];
-    let mut results_dogs = vec![];
+    let mut results_requests = vec![];
     while let Some(result) = set.join_next().await {
-        let (status, dog) = result.expect("Request panicked");
+        let (status, request) = result.expect("Request panicked");
         results_bools.push(status);
-        results_dogs.push(dog);
+        results_requests.push(request);
     }
 
     // Check if all requests were successful
@@ -94,13 +95,13 @@ async fn execute_collection(
         if !parsed_all {
             println!("\n  Some files could not be parsed");
         }
-        // Search for the failed dog
+        // Search for the failed requests
         for (i, status) in results_bools.iter().enumerate() {
             if !status {
                 println!(
                     "\n  Request {}\n  ➡️  Failed for {}",
-                    results_dogs[i].meta.name.red(),
-                    results_dogs[i].method.url.red()
+                    results_requests[i].name.red(),
+                    results_requests[i].url.red()
                 );
             }
         }
