@@ -1,19 +1,14 @@
 { pkgs, ... }:
 
 {
-
   # https://devenv.sh/packages/
-  packages = [ pkgs.openssl pkgs.fzf pkgs.ripgrep pkgs.bat pkgs.bun pkgs.just ];
+  packages = [ pkgs.fzf pkgs.ripgrep pkgs.bat pkgs.bun pkgs.just pkgs.cargo-audit ];
 
   # https://devenv.sh/languages/
-  # languages.nix.enable = true;
   languages.rust.enable = true;
 
-  # https://devenv.sh/pre-commit-hooks/
-  # pre-commit.hooks.shellcheck.enable = true;
-
-  # https://devenv.sh/processes/
-  # processes.ping.exec = "ping example.com";
+  # https://devenv.sh/services/
+  # Example server used by the bru files in test/yabruc-bruno
   services.nginx = {
     enable = true;
     httpConfig = ''
@@ -29,9 +24,11 @@
     '';
   };
 
+  # https://devenv.sh/tests/
   enterTest = ''
-    cargo run run .
+    wait_for_port 1234
     cargo test
+    cargo run -- run test/yabruc-bruno
   '';
 
   # See full reference at https://devenv.sh/reference/options/
