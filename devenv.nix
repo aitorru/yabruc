@@ -27,6 +27,8 @@
   # https://devenv.sh/tests/
   enterTest = ''
     wait_for_port 1234
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
     cargo test
     cargo run -- run test/yabruc-bruno
   '';
