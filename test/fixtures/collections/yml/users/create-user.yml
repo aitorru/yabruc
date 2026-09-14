@@ -1,0 +1,14 @@
+info:
+  name: Create User
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: http://localhost:1234/users
+  body:
+    type: json
+    data: |-
+      {
+        "name": "John Doe"
+      }

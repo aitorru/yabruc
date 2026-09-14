@@ -1,14 +1,14 @@
 use std::{
-    path::PathBuf,
+    path::Path,
     sync::{Arc, Mutex},
     time::Duration,
-    vec,
 };
 
 use clap::{Command, arg};
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
 
+mod collection;
 mod hermes;
 mod model;
 mod parser;
@@ -20,47 +20,67 @@ async fn main() {
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("run", run_matches)) => {
-            let path = run_matches.get_one::<String>("ROUTE").expect("required");
-            let collection;
+            let route = run_matches.get_one::<String>("ROUTE").expect("required");
+            let path = Path::new(route);
             // Check if the path is a folder or a file and that it exists
-            if !std::path::Path::new(&path).exists() {
-                eprintln!("The path {} does not exist", path);
+            if !path.exists() {
+                eprintln!("The path {} does not exist", route);
                 std::process::exit(1);
             }
-            if std::path::Path::new(&path).is_dir() {
-                // Scan the folder for .bru files
-                let bar = multi_bar.add(ProgressBar::new_spinner());
-                bar.enable_steady_tick(Duration::from_millis(100));
-                bar.set_message("🔍 Scanning folder");
-                // Store the current time
-                let start = std::time::Instant::now();
-                collection = scan_folder(path);
-                // Print the time it took to scan the folder
-                bar.set_message(format!("✅ Scanned folder in {:?}", start.elapsed()));
-                // Stop the spinner
-                bar.finish();
-            } else {
-                let bar = multi_bar.add(ProgressBar::new_spinner());
-                bar.enable_steady_tick(Duration::from_millis(100));
-                let start = std::time::Instant::now();
-                bar.set_message("🔍 Scanning file");
-                collection = vec![std::path::PathBuf::from(&path)];
-                // Print the time it took to scan the folder
-                bar.set_message(format!("✅ Scanned file in {:?}", start.elapsed()));
-                // Stop the spinner
-                bar.finish();
+
+            let bar = multi_bar.add(ProgressBar::new_spinner());
+            bar.enable_steady_tick(Duration::from_millis(100));
+            bar.set_message("🔍 Loading collection");
+            // Store the current time
+            let start = std::time::Instant::now();
+            let collection = match collection::load(path) {
+                Ok(collection) => collection,
+                Err(error) => {
+                    bar.finish_and_clear();
+                    eprintln!("❌ Could not load the collection: {}", error);
+                    std::process::exit(1);
+                }
+            };
+            let files = collection.requests_in(path);
+            // Print the time it took to load the collection
+            let description = match collection.format {
+                Some(collection::Format::Bru) => format!("bru collection {}", collection.name),
+                Some(collection::Format::Yml) => format!("yml collection {}", collection.name),
+                None => collection.root.display().to_string(),
+            };
+            bar.finish_with_message(format!(
+                "✅ Loaded {} request(s) from {} in {:?}",
+                files.len(),
+                description,
+                start.elapsed()
+            ));
+
+            // Progress bars are hidden when there is no terminal, so always print the problems
+            for warning in &collection.warnings {
+                eprintln!("  ⚠️  {}", warning);
             }
-            if collection.is_empty() {
-                println!("No .bru files found.\nExiting 😉...");
+            if files.is_empty() {
+                println!("No requests found.\nExiting 😉...");
                 std::process::exit(0);
             }
-            let (queries, errors) = parser::parse_pathbuf(collection, &multi_bar).await;
-            // Progress bars are hidden when there is no terminal, so always print the errors
-            for error in &errors {
-                eprintln!("  {}", error);
+
+            let mut requests = vec![];
+            let mut errors = 0;
+            for file in files {
+                match &file.request {
+                    Ok(request) => requests.push(request.clone()),
+                    Err(error) => {
+                        errors += 1;
+                        let path = file
+                            .path
+                            .strip_prefix(&collection.root)
+                            .unwrap_or(&file.path);
+                        eprintln!("  ❌ Could not parse {}: {}", path.display(), error);
+                    }
+                }
             }
             println!("\n  🚀 Starting requests");
-            execute_collection(queries, errors.is_empty(), &multi_bar).await;
+            execute_collection(requests, errors == 0, &multi_bar).await;
         }
         _ => unreachable!(),
     }
@@ -106,30 +126,6 @@ async fn execute_collection(
             }
         }
         std::process::exit(1);
-    }
-}
-
-fn scan_folder(path: &str) -> Vec<PathBuf> {
-    let mut folders = vec![];
-    let mut files = vec![];
-
-    folders.push(std::path::PathBuf::from(path));
-
-    loop {
-        if !folders.is_empty() {
-            let folder = folders.pop().unwrap();
-            let paths = std::fs::read_dir(&folder).unwrap();
-            for path in paths {
-                let path = path.unwrap().path();
-                if path.is_dir() {
-                    folders.push(path);
-                } else if path.extension().is_some_and(|ext| ext == "bru") {
-                    files.push(path);
-                }
-            }
-        } else {
-            return files;
-        }
     }
 }
 
