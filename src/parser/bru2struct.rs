@@ -1,13 +1,9 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader, Lines},
-    path::PathBuf,
-    sync::{Arc, LazyLock, Mutex},
-};
+use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
+
+use super::bru::{self, Document};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Dog {
@@ -60,32 +56,33 @@ pub enum BodyType {
     Xml,
     Text,
     Sparql,
+    Graphql,
     Form,
     FormUrl,
+    File,
 }
 
-pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) -> Vec<Dog> {
-    let state = Arc::new(Mutex::new(multi_bar.clone()));
+/// Parses all the files, returning the parsed requests and the errors of the files that failed.
+pub async fn parse_pathbuf(
+    collection: Vec<PathBuf>,
+    multi_bar: &MultiProgress,
+) -> (Vec<Dog>, Vec<String>) {
     let mut set = JoinSet::new();
     for path in collection {
-        let file = File::open(&path).expect("Could not open file");
-        // Read the file with a buff reader
-        let lines = BufReader::new(file).lines();
         // Create a worker that will read the file separated.
-        let state_clone = state.clone();
-        set.spawn(async move {
-            parse_and_return_dog(lines, state_clone, path.display().to_string()).await
-        });
+        let multi_bar = multi_bar.clone();
+        set.spawn(async move { parse_and_return_dog(path, multi_bar).await });
     }
     // Wait for all the workers to finish and return the vec of dogs
     let mut dogs = vec![];
+    let mut errors = vec![];
     while let Some(res) = set.join_next().await {
-        let out = res.expect("Could not parse file");
-        dogs.push(out);
+        match res.expect("Could not parse file") {
+            Ok(dog) => dogs.push(dog),
+            Err(error) => errors.push(error),
+        }
     }
-    // #[cfg(debug_assertions)]
-    // let _ = multi_bar.println(format!("Dogs: {:?}\n", dogs));
-    dogs
+    (dogs, errors)
 }
 
 static METHODS: LazyLock<HashMap<&'static str, reqwest::Method>> = LazyLock::new(|| {
@@ -102,211 +99,188 @@ static METHODS: LazyLock<HashMap<&'static str, reqwest::Method>> = LazyLock::new
     m
 });
 
-enum ParseState {
-    Unknown,
-    Meta,
-    Method,
-    VariablesPre,
-    VariablesPost,
-    BodyJson,
-}
-
-async fn parse_and_return_dog(
-    lines: Lines<BufReader<File>>,
-    state: Arc<Mutex<MultiProgress>>,
-    file_name: String,
-) -> Dog {
-    let bar = state.lock().unwrap().add(ProgressBar::new_spinner());
+async fn parse_and_return_dog(path: PathBuf, multi_bar: MultiProgress) -> Result<Dog, String> {
+    let file_name = path.display().to_string();
+    let bar = multi_bar.add(ProgressBar::new_spinner());
     bar.set_message(format!("🔍 Parsing {} file.", file_name));
     let start = std::time::Instant::now();
 
-    let mut state: ParseState = ParseState::Unknown;
-    let mut final_dog: Dog = Dog {
-        meta: Meta {
-            name: "".to_string(),
-            type_: "".to_string(),
-        },
+    let parsed = std::fs::read_to_string(&path)
+        .map_err(|error| error.to_string())
+        .and_then(|source| bru::parse(&source).map_err(|error| error.to_string()))
+        .and_then(|document| document_to_dog(&document));
+
+    match parsed {
+        Ok(dog) => {
+            bar.finish_with_message(format!("✅ Parsed {} in {:?}", file_name, start.elapsed()));
+            Ok(dog)
+        }
+        Err(error) => {
+            let error = format!("❌ Could not parse {}: {}", file_name, error);
+            bar.finish_with_message(error.clone());
+            Err(error)
+        }
+    }
+}
+
+fn document_to_dog(document: &Document) -> Result<Dog, String> {
+    let meta = document.block("meta");
+    let meta = Meta {
+        name: meta
+            .and_then(|m| m.get("name"))
+            .unwrap_or_default()
+            .to_string(),
+        type_: meta
+            .and_then(|m| m.get("type"))
+            .unwrap_or("http")
+            .to_string(),
+    };
+
+    let (type_, request) = document
+        .blocks
+        .iter()
+        .find_map(|block| {
+            if block.name == "http" {
+                let method =
+                    reqwest::Method::from_bytes(block.get("method")?.to_uppercase().as_bytes())
+                        .ok()?;
+                return Some((method, block));
+            }
+            METHODS
+                .get(block.name.as_str())
+                .map(|method| (method.clone(), block))
+        })
+        .ok_or("no request block (get, post, put...) found")?;
+
+    let body = match request.get("body").unwrap_or("none") {
+        "none" => None,
+        mode => {
+            let (type_, block) = match mode {
+                "json" => (BodyType::Json, "body:json"),
+                "xml" => (BodyType::Xml, "body:xml"),
+                "text" => (BodyType::Text, "body:text"),
+                "sparql" => (BodyType::Sparql, "body:sparql"),
+                "graphql" => (BodyType::Graphql, "body:graphql"),
+                "multipartForm" => (BodyType::Form, "body:multipart-form"),
+                "formUrlEncoded" => (BodyType::FormUrl, "body:form-urlencoded"),
+                "file" => (BodyType::File, "body:file"),
+                _ => return Err(format!("unknown body type `{mode}`")),
+            };
+            Some(Body {
+                type_: Some(type_),
+                value: document
+                    .block(block)
+                    .and_then(|block| block.text())
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        }
+    };
+
+    let auth = request
+        .get("auth")
+        .filter(|auth| *auth != "none")
+        .map(str::to_string);
+
+    Ok(Dog {
+        meta,
         method: Method {
-            type_: reqwest::Method::GET,
-            url: "".to_string(),
-            body: None,
-            auth: None,
+            type_,
+            url: request.get("url").unwrap_or_default().to_string(),
+            body,
+            auth,
         },
         variables: Variables {
             pre: PreVars {
-                vars: HashMap::new(),
+                vars: enabled_pairs(document, "vars:pre-request"),
             },
             post: PostVars {
-                vars: HashMap::new(),
+                vars: enabled_pairs(document, "vars:post-response"),
             },
         },
+    })
+}
+
+fn enabled_pairs(document: &Document, name: &str) -> HashMap<String, String> {
+    let Some(block) = document.block(name) else {
+        return HashMap::new();
     };
-    for line in lines.flatten() {
-        match state {
-            ParseState::Unknown => {
-                if line == "" {
-                    continue;
-                }
-                if line.starts_with("meta") {
-                    state = ParseState::Meta;
-                }
-                // Method range. It can be the following values
-                // get | post | put | delete | patch | options | head | connect | trace
-                if let Some(method) = METHODS.get(line.split_whitespace().next().unwrap()) {
-                    final_dog.method.type_ = method.clone();
-                    state = ParseState::Method;
-                }
+    block
+        .pairs()
+        .iter()
+        .filter_map(|pair| Some((pair.key.clone(), block.get(&pair.key)?.to_string())))
+        .collect()
+}
 
-                if line.starts_with("vars:pre-request") {
-                    state = ParseState::VariablesPre;
-                }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-                if line.starts_with("vars:post-request") {
-                    state = ParseState::VariablesPost;
-                }
+    fn dog(source: &str) -> Result<Dog, String> {
+        document_to_dog(&bru::parse(source).unwrap())
+    }
 
-                if line.starts_with("body:json") {
-                    state = ParseState::BodyJson;
-                }
-            }
-            ParseState::Meta => {
-                if line.starts_with("}") {
-                    state = ParseState::Unknown;
-                    continue;
-                }
-                let (mut index, value) = line.split_at(line.find(":").unwrap());
-                let value = value.split_at(1).1;
-                // Remove stating and ending whitespaces in index
-                while index.starts_with(" ") || index.ends_with(" ") {
-                    index = index.trim();
-                }
-                if index == "name" {
-                    final_dog.meta.name = value.trim().to_string();
-                } else if index == "type" {
-                    final_dog.meta.type_ = value.trim().to_string();
-                }
-            }
-            ParseState::Method => {
-                if line.starts_with("}") {
-                    state = ParseState::Unknown;
-                    continue;
-                }
-                let (mut index, value) = line.split_at(line.find(":").unwrap());
-                let value = value.split_at(1).1;
-                // Remove stating and ending whitespaces in index
-                while index.starts_with(" ") || index.ends_with(" ") {
-                    index = index.trim();
-                }
-                if index == "url" {
-                    final_dog.method.url = value.trim().to_string();
-                }
-                if index == "body" {
-                    // Body can be none or a string
-                    match value.trim() {
-                        "none" => {
-                            final_dog.method.body = None;
-                        }
-                        "json" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::Json),
-                                value: "".to_string(),
-                            });
-                        }
-                        "xml" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::Xml),
-                                value: "".to_string(),
-                            });
-                        }
-                        "text" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::Text),
-                                value: "".to_string(),
-                            });
-                        }
-                        "sparql" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::Sparql),
-                                value: "".to_string(),
-                            });
-                        }
-                        "multipartForm" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::Form),
-                                value: "".to_string(),
-                            });
-                        }
-                        "formUrlEncoded" => {
-                            final_dog.method.body = Some(Body {
-                                type_: Some(BodyType::FormUrl),
-                                value: "".to_string(),
-                            });
-                        }
-                        _ => panic!("Unknown body type"),
-                    }
-                }
-            }
-            ParseState::VariablesPre => {
-                if line.starts_with("}") {
-                    state = ParseState::Unknown;
-                    continue;
-                }
-                let (mut index, value) = line.split_at(line.find(":").unwrap());
-                let value = value.split_at(1).1;
-                // Remove stating and ending whitespaces in index
-                while index.starts_with(" ") || index.ends_with(" ") {
-                    index = index.trim();
-                }
+    #[test]
+    fn maps_official_request_fixture() {
+        let dog = dog(include_str!("../../test/fixtures/bru/request.bru")).unwrap();
+        assert_eq!(dog.meta.name, "Send Bulk SMS");
+        assert_eq!(dog.meta.type_, "http");
+        assert_eq!(dog.method.type_, reqwest::Method::GET);
+        assert_eq!(dog.method.url, "https://api.textlocal.in/send/:id");
+        assert_eq!(dog.method.auth.as_deref(), Some("bearer"));
+        assert_eq!(
+            dog.method.body,
+            Some(Body {
+                type_: Some(BodyType::Json),
+                value: "{\n  \"hello\": \"world\"\n}".to_string(),
+            })
+        );
+        assert_eq!(
+            dog.variables.pre.vars,
+            HashMap::from([("departingDate".to_string(), "2020-01-01".to_string())])
+        );
+        assert_eq!(dog.variables.post.vars.len(), 2);
+        assert_eq!(dog.variables.post.vars["token"], "$res.body.token");
+    }
 
-                // Add the index and the value to the hashmap
-                final_dog
-                    .variables
-                    .pre
-                    .vars
-                    .insert(index.to_string(), value.trim().to_string());
-            }
-            ParseState::VariablesPost => {
-                if line.starts_with("}") {
-                    state = ParseState::Unknown;
-                    continue;
-                }
-                let (mut index, value) = line.split_at(line.find(":").unwrap());
-                let value = value.split_at(1).1;
-                // Remove stating and ending whitespaces in index
-                while index.starts_with(" ") || index.ends_with(" ") {
-                    index = index.trim();
-                }
-
-                // Add the index and the value to the hashmap
-                final_dog
-                    .variables
-                    .post
-                    .vars
-                    .insert(index.to_string(), value.trim().to_string());
-            }
-            ParseState::BodyJson => {
-                if line.starts_with("}") {
-                    state = ParseState::Unknown;
-                    continue;
-                }
-                // If the body is none, continue, as the option has been disabled
-                if final_dog.method.body.is_none() {
-                    continue;
-                }
-                if let Some(bodytype) = &(final_dog.method.body.as_mut().unwrap().type_) {
-                    match bodytype {
-                        BodyType::Json => {
-                            final_dog.method.body.as_mut().unwrap().value += line.trim();
-                        }
-                        _ => continue,
-                    }
-                } else {
-                    continue;
-                }
-            }
+    #[test]
+    fn maps_every_example_request() {
+        for (source, method) in [
+            (
+                include_str!("../../test/yabruc-bruno/Example GET.bru"),
+                reqwest::Method::GET,
+            ),
+            (
+                include_str!("../../test/yabruc-bruno/Example POST.bru"),
+                reqwest::Method::POST,
+            ),
+            (
+                include_str!("../../test/yabruc-bruno/Example PUT.bru"),
+                reqwest::Method::PUT,
+            ),
+        ] {
+            let dog = dog(source).unwrap();
+            assert_eq!(dog.method.type_, method);
+            assert_eq!(dog.method.url, "http://localhost:1234");
         }
     }
-    bar.set_message(format!("✅ Parsed {} in {:?}", file_name, start.elapsed()));
-    bar.finish();
-    final_dog
+
+    #[test]
+    fn maps_graphql_and_custom_methods() {
+        let dog = dog("meta {\n  name: gql\n}\n\nhttp {\n  method: purge\n  url: http://localhost\n  body: graphql\n}\n\nbody:graphql {\n  { launches { id } }\n}\n").unwrap();
+        assert_eq!(dog.method.type_.as_str(), "PURGE");
+        assert_eq!(dog.method.body.unwrap().value, "{ launches { id } }");
+    }
+
+    #[test]
+    fn reports_invalid_requests() {
+        assert_eq!(
+            dog("meta {\n  name: no request\n}\n").unwrap_err(),
+            "no request block (get, post, put...) found"
+        );
+        assert_eq!(
+            dog("post {\n  url: http://localhost\n  body: yaml\n}\n").unwrap_err(),
+            "unknown body type `yaml`"
+        );
+    }
 }
