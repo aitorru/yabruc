@@ -25,11 +25,14 @@
   };
 
   # https://devenv.sh/scripts/
-  # Serves the interactive guide of the parser: devenv shell parser-guide [port]
+  # Serves the interactive guide of the parser: devenv shell parser-guide [port] [address]
+  # The address is 127.0.0.1 by default, use 0.0.0.0 or the IP of an interface to open it to other
+  # machines (the firewall must allow the port).
   scripts.parser-guide = {
-    description = "Serve tools/parser-guide with nginx (default port 8080)";
+    description = "Serve tools/parser-guide with nginx (default 127.0.0.1:8080)";
     exec = ''
       port="''${1:-8080}"
+      address="''${2:-127.0.0.1}"
       prefix="$DEVENV_STATE/parser-guide"
       mkdir -p "$prefix/tmp"
       cat > "$prefix/nginx.conf" <<EOF
@@ -46,14 +49,19 @@
         uwsgi_temp_path $prefix/tmp/uwsgi;
         scgi_temp_path $prefix/tmp/scgi;
         server {
-          listen 127.0.0.1:$port;
+          listen $address:$port;
           root $DEVENV_ROOT/tools/parser-guide;
           index index.html;
           add_header Cache-Control no-store;
         }
       }
       EOF
-      echo "📖 Parser guide at http://localhost:$port (Ctrl+C to stop)"
+      if [ "$address" = "0.0.0.0" ]; then
+        url="http://$(hostname):$port"
+      else
+        url="http://$address:$port"
+      fi
+      echo "📖 Parser guide at $url (Ctrl+C to stop)"
       exec ${pkgs.nginx}/bin/nginx -p "$prefix" -c "$prefix/nginx.conf"
     '';
   };

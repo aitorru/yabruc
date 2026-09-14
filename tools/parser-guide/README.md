@@ -7,7 +7,11 @@ mapped to a `Request`.
 ```bash
 devenv shell parser-guide        # http://localhost:8080
 devenv shell parser-guide 9000   # another port
+devenv shell parser-guide 8080 100.110.181.122   # listen on another address, like the Tailscale IP
 ```
+
+By default nginx only listens on `127.0.0.1`. To open it from another machine pass the address of an
+interface, or `0.0.0.0` for all of them, and make sure the firewall allows the port.
 
 It also works opening `index.html` directly in a browser.
 
