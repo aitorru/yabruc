@@ -94,7 +94,7 @@
   .tabs { display: flex; border-bottom: 1px solid var(--line); }
   .tabs button { border: 0; border-radius: 0; background: none; padding: 11px 16px; color: var(--muted); border-bottom: 2px solid transparent; }
   .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
-  .tab { display: none; flex: 1; overflow: auto; max-height: 620px; }
+  .tab { display: none; flex: 1; overflow: auto; max-height: 620px; position: relative; }
   .tab.on { display: block; }
   .stepper { display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; flex-wrap: wrap; }
   .stepper input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
@@ -444,7 +444,7 @@ drafts 0.5</textarea>
     <p>Se ejecuta con <code>devenv shell parser-guide-check</code> y debe acabar en <code>mismatches=0</code>. Si cambias el parser en Rust, cambia también <code>parser.js</code>.</p>
     <p class="muted">Lo que no está portado: <code>yml2struct</code> (necesitaría un parser YAML en el navegador) y el loader, aparte del algoritmo de orden de la sección 5.</p>
   </div>
-  <footer>Servida con <code>devenv shell parser-guide</code> · yabruc</footer>
+  <footer><a href="../">Documentación de yabruc</a> · en local: <code>devenv shell parser-guide</code></footer>
 </section>
 
 </main>
@@ -454,7 +454,7 @@ drafts 0.5</textarea>
 'use strict';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const REPO = 'https://github.com/aitorru/yabruc/blob/feature/parser-guide/';
+const REPO = 'https://github.com/aitorru/yabruc/blob/trunk/';
 
 // ---------------------------------------------------------------- Pipeline
 const STAGES = {
@@ -793,8 +793,16 @@ function renderStep() {
     ? '<span class="fn ' + event.fn + '">' + event.fn + '()</span> línea ' + event.line + (event.discarded ? ' <span class="muted">(descartado)</span>' : '') + '<br>' + formatMessage(event.message)
     : '<span class="muted">No hay pasos.</span>';
   document.querySelectorAll('#events li').forEach((li) => li.classList.toggle('on', Number(li.dataset.i) === state.step));
+  // Scroll only the list of steps: scrollIntoView would also scroll the whole page
   const on = document.querySelector('#events li.on');
-  if (on) on.scrollIntoView({ block: 'nearest' });
+  const box = $('tab-trace');
+  if (on && box.classList.contains('on')) {
+    const sticky = box.querySelector('.stepper').offsetHeight;
+    const top = on.offsetTop;
+    const bottom = top + on.offsetHeight;
+    if (top < box.scrollTop + sticky) box.scrollTop = top - sticky;
+    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
+  }
   renderEditor();
   if (event) revealLine(event.line);
 }

@@ -29,7 +29,7 @@
   # The address is 127.0.0.1 by default, use 0.0.0.0 or the IP of an interface to open it to other
   # machines (the firewall must allow the port).
   scripts.parser-guide = {
-    description = "Serve tools/parser-guide with nginx (default 127.0.0.1:8080)";
+    description = "Serve docs/public/parser-guide with nginx (default 127.0.0.1:8080)";
     exec = ''
       port="''${1:-8080}"
       address="''${2:-127.0.0.1}"
@@ -50,7 +50,7 @@
         scgi_temp_path $prefix/tmp/scgi;
         server {
           listen $address:$port;
-          root $DEVENV_ROOT/tools/parser-guide;
+          root $DEVENV_ROOT/docs/public/parser-guide;
           index index.html;
           add_header Cache-Control no-store;
         }
@@ -66,9 +66,9 @@
     '';
   };
 
-  # Checks that tools/parser-guide/parser.js still behaves like the Rust parser
+  # Checks that docs/public/parser-guide/parser.js still behaves like the Rust parser
   scripts.parser-guide-check = {
-    description = "Compare tools/parser-guide/parser.js with the Rust parser";
+    description = "Compare docs/public/parser-guide/parser.js with the Rust parser";
     exec = ''
       set -e
       export CARGO_TARGET_DIR="$DEVENV_ROOT/target"

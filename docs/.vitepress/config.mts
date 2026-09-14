@@ -11,7 +11,8 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Docs', link: '/usage' }
+      { text: 'Docs', link: '/usage' },
+      { text: 'Parser guide', link: '/parser-guide/index.html', target: '_self' }
     ],
 
     sidebar: [
@@ -25,7 +26,8 @@ export default defineConfig({
               { text: 'HTTP', link: '/compatibility/HTTP' },
             ]
           },
-          { text: 'How it works', link: '/how-it-works' }
+          { text: 'How it works', link: '/how-it-works' },
+          { text: 'Parser guide (interactive)', link: '/parser-guide/index.html', target: '_self' }
         ]
       }
     ],

@@ -1,10 +1,10 @@
-// Differential test between parser.js and the Rust parser.
+// Differential test between docs/public/parser-guide/parser.js and the Rust parser.
 // Usage: node difftest.js path/to/difftest-binary   (or `devenv shell parser-guide-check`)
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const P = require('./parser.js');
+const P = require('../../docs/public/parser-guide/parser.js');
 
 const binary = process.argv[2];
 if (!binary) {
