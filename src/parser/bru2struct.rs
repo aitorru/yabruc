@@ -3,13 +3,11 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Lines},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 use indicatif::{MultiProgress, ProgressBar};
 use tokio::task::JoinSet;
-
-use lazy_static::lazy_static;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Dog {
@@ -90,21 +88,19 @@ pub async fn parse_pathbuf(collection: Vec<PathBuf>, multi_bar: &MultiProgress) 
     dogs
 }
 
-lazy_static! {
-    static ref METHODS: HashMap<&'static str, reqwest::Method> = {
-        let mut m = HashMap::new();
-        m.insert("get", reqwest::Method::GET);
-        m.insert("post", reqwest::Method::POST);
-        m.insert("put", reqwest::Method::PUT);
-        m.insert("delete", reqwest::Method::DELETE);
-        m.insert("patch", reqwest::Method::PATCH);
-        m.insert("options", reqwest::Method::OPTIONS);
-        m.insert("head", reqwest::Method::HEAD);
-        m.insert("connect", reqwest::Method::CONNECT);
-        m.insert("trace", reqwest::Method::TRACE);
-        m
-    };
-}
+static METHODS: LazyLock<HashMap<&'static str, reqwest::Method>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert("get", reqwest::Method::GET);
+    m.insert("post", reqwest::Method::POST);
+    m.insert("put", reqwest::Method::PUT);
+    m.insert("delete", reqwest::Method::DELETE);
+    m.insert("patch", reqwest::Method::PATCH);
+    m.insert("options", reqwest::Method::OPTIONS);
+    m.insert("head", reqwest::Method::HEAD);
+    m.insert("connect", reqwest::Method::CONNECT);
+    m.insert("trace", reqwest::Method::TRACE);
+    m
+});
 
 enum ParseState {
     Unknown,
